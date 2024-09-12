@@ -1,0 +1,32 @@
+[package]
+name = "lcpc-brakedown-pc"
+version = "0.2.0"
+authors = ["kwantam <kwantam@gmail.com>"]
+edition = "2018"
+description = "polynomial commitment scheme from SDIG expander code"
+license = "Apache-2.0"
+repository = "https://github.com/conroi/lcpc"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+ff.workspace = true
+itertools.workspace = true
+lcpc-2d.workspace = true
+ndarray.workspace = true
+num-traits.workspace = true
+rand.workspace = true
+rand_chacha.workspace = true
+rayon.workspace = true
+sprs.workspace = true
+typenum.workspace = true
+
+[dev-dependencies]
+bincode.workspace = true
+blake3.workspace = true
+merlin.workspace = true
+paste.workspace = true
+lcpc-test-fields.workspace = true
+
+[features]
+bench = []
