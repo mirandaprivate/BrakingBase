@@ -1022,7 +1022,7 @@ where
 
 /// Evaluate the committed polynomial using the supplied "outer" tensor
 /// and generate a proof of (1) low-degreeness and (2) correct evaluation.
-fn prove<D, E>(
+/*fn prove<D, E>(
     comm: &LcCommit<D, E>,
     outer_tensor: &[FldT<E>],
     enc: &E,
@@ -1063,6 +1063,7 @@ where
             tmp
         };
         // add p_random to the transcript
+        // MODIFY: SHOULD ACTUALLY ADD ITS TWO BASEFOLD COMMITS TO THE TRANSCRIPT
         p_random
             .iter()
             .for_each(|coeff| coeff.transcript_update(tr, E::LABEL_PR));
@@ -1083,10 +1084,109 @@ where
         );
         tmp
     };
+    println!("p_eval.len() = {}", p_eval.len());
     // add p_eval to the transcript
     p_eval
         .iter()
         .for_each(|coeff| coeff.transcript_update(tr, E::LABEL_PE));
+
+    // now extract the column numbers to open
+    let n_col_opens = enc.get_n_col_opens();
+    let columns: Vec<LcColumn<D, E>> = {
+        let mut key: <ChaCha20Rng as SeedableRng>::Seed = Default::default();
+        tr.challenge_bytes(E::LABEL_CO, &mut key);
+        let mut cols_rng = ChaCha20Rng::from_seed(key);
+        // XXX(optimization) could expand seed in parallel instead of in series
+        let col_range = Uniform::new(0usize, comm.n_cols);
+        let cols_to_open: Vec<usize> = repeat_with(|| col_range.sample(&mut cols_rng))
+            .take(n_col_opens)
+            .collect();
+        cols_to_open
+            .par_iter()
+            .map(|&col| open_column(comm, col))
+            .collect::<ProverResult<Vec<LcColumn<D, E>>, ErrT<E>>>()?
+    };
+
+    Ok(LcEvalProof {
+        n_cols: comm.n_cols,
+        p_eval,
+        p_random_vec,
+        columns,
+    })
+}*/
+
+fn prove<D, E>(
+    comm: &LcCommit<D, E>,
+    outer_tensor: &[FldT<E>],
+    enc: &E,
+    tr: &mut Transcript,
+) -> ProverResult<LcEvalProof<D, E>, ErrT<E>>
+where
+    D: Digest,
+    E: LcEncoding,
+{
+    // make sure arguments are well formed
+    check_comm(comm, enc)?;
+    if outer_tensor.len() != comm.n_rows {
+        return Err(ProverError::OuterTensor);
+    }
+
+    // first, evaluate the polynomial on a random tensor (low-degree test)
+    // we repeat this to boost soundness
+    let mut p_random_vec: Vec<Vec<FldT<E>>> = Vec::new();
+    let n_degree_tests = enc.get_n_degree_tests();
+    for _i in 0..n_degree_tests {
+        let p_random = {
+            let mut key: <ChaCha20Rng as SeedableRng>::Seed = Default::default();
+            tr.challenge_bytes(E::LABEL_DT, &mut key);
+            let mut deg_test_rng = ChaCha20Rng::from_seed(key);
+            // XXX(optimization) could expand seed in parallel instead of in series
+            let rand_tensor: Vec<FldT<E>> = repeat_with(|| FldT::<E>::random(&mut deg_test_rng))
+            .take(comm.n_rows)
+            .collect();
+            let mut tmp = vec![FldT::<E>::zero(); comm.n_per_row];
+            collapse_columns::<E>(
+                &comm.comm,
+                &rand_tensor,
+                &mut tmp,
+                comm.n_rows,
+                comm.n_cols,
+                0,
+            );
+            tmp
+        };
+        // add p_random to the transcript
+        // MODIFY: SHOULD ACTUALLY ADD BASEFOLD COMMITS OF THE FOLLOWING TWO TO THE TRANSCRIPT
+        p_random[0..comm.n_per_row]
+            .iter()
+            .for_each(|coeff| coeff.transcript_update(tr, E::LABEL_PR));
+        /*p_random[comm.n_per_row..]
+            .iter()
+            .for_each(|coeff| coeff.transcript_update(tr, E::LABEL_PR));*/
+        p_random_vec.push(p_random);
+    }
+
+    // next, evaluate the polynomial using the supplied tensor
+    let p_eval = {
+        let mut tmp = vec![FldT::<E>::zero(); comm.n_per_row];
+        collapse_columns::<E>(
+            &comm.comm,
+            outer_tensor,
+            &mut tmp,
+            comm.n_rows,
+            comm.n_cols,
+            0,
+        );
+        tmp
+    };
+    // add p_eval to the transcript
+    // MODIFY: SHOULD ACTUALLY ADD BASEFOLD COMMITS OF THE FOLLOWING TWO TO THE TRANSCRIPT
+    p_eval[0..comm.n_per_row]
+        .iter()
+        .for_each(|coeff| coeff.transcript_update(tr, E::LABEL_PE));
+    /*p_eval[comm.n_per_row..]
+        .iter()
+        .for_each(|coeff| coeff.transcript_update(tr, E::LABEL_PE));*/
 
     // now extract the column numbers to open
     let n_col_opens = enc.get_n_col_opens();

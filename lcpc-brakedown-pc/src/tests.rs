@@ -20,6 +20,7 @@ use rand::{thread_rng, Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
 use sprs::{CsMat, TriMat};
 use std::iter::repeat_with;
+use super::N_ROWS;
 
 
 #[test]
@@ -107,10 +108,9 @@ fn prove_verify_size_bench() {
     use ff::PrimeField;
     use std::time::Instant;
 
-    for lgl in (13..=17).step_by(2) {
+    for lgl in (13..=13).step_by(2) {
         // commit to random poly of specified size
         let coeffs = random_coeffs(lgl);
-        println!("{}", coeffs.len());
         let enc = SdigEncodingS::<Ft255, TestCode>::new(coeffs.len(), 0);
         let comm = LcCommit::<Blake3, _>::commit(&coeffs, &enc).unwrap();
         let root = comm.get_root();
@@ -174,6 +174,76 @@ fn prove_verify_size_bench() {
     }
 }
 
+#[test]
+#[ignore]
+fn prove_verify_size_ml_bench() {
+    use super::codespec::SdigCode3 as TestCode;
+    use ff::PrimeField;
+    use std::time::Instant;
+
+    for lgl in (13..=17).step_by(2) {
+        // commit to random poly of specified size
+        let coeffs = random_coeffs(lgl);
+        let enc = SdigEncodingS::<Ft255, TestCode>::new(coeffs.len(), 0);
+        let comm = LcCommit::<Blake3, _>::commit(&coeffs, &enc).unwrap();
+        let root = comm.get_root();
+
+        // evaluate the random polynomial we just generated at a random point x
+        let x: Vec<Ft255> = (0..lgl)
+                    .map(|_| Ft255::random(rand::thread_rng()))
+                    .collect();
+        
+
+        let log_n_rows: usize = (N_ROWS as f64).log2() as usize;
+        let x0: Vec<Ft255> = (1..=log_n_rows).rev().map(|i| x[lgl - i]).collect();
+        let outer_tensor = point_to_tensor(&x0);
+        let x1: Vec<Ft255> = (0..=(x.len() - log_n_rows - 1)).map(|i| x[i]).collect();
+        let inner_tensor = point_to_tensor(&x1);
+
+
+        let mut xxx = 0u8;
+        let now = Instant::now();
+        for i in 0..N_ITERS { //N_ITERS
+            let mut tr = Transcript::new(b"test transcript");
+            tr.append_message(b"polycommit", root.as_ref());
+            tr.append_message(b"ncols", &(enc.get_n_col_opens() as u64).to_be_bytes()[..]);
+            let pf = comm.prove(&outer_tensor[..], &enc, &mut tr).unwrap();
+            let encoded: Vec<u8> = bincode::serialize(&pf).unwrap();
+            xxx ^= encoded[i];
+        }
+        let pf_dur = now.elapsed().as_nanos() / N_ITERS as u128;
+
+        let mut tr = Transcript::new(b"test transcript");
+        tr.append_message(b"polycommit", root.as_ref());
+        tr.append_message(b"ncols", &(enc.get_n_col_opens() as u64).to_be_bytes()[..]);
+        let pf = comm.prove(&outer_tensor[..], &enc, &mut tr).unwrap();
+        let encoded: Vec<u8> = bincode::serialize(&pf).unwrap();
+        let len = encoded.len();
+
+        let now = Instant::now();
+        for i in 0..N_ITERS {
+            let mut tr = Transcript::new(b"test transcript");
+            tr.append_message(b"polycommit", root.as_ref());
+            tr.append_message(b"ncols", &(enc.get_n_col_opens() as u64).to_be_bytes()[..]);
+            xxx ^= pf
+                .verify(
+                    root.as_ref(),
+                    &outer_tensor[..],
+                    &inner_tensor[..],
+                    &enc,
+                    &mut tr,
+                )
+                .unwrap()
+                .to_repr()
+                .as_ref()[i];
+        }
+        let vf_dur = now.elapsed().as_nanos() / N_ITERS as u128;
+
+        println!("{}: {} {} {} {}", lgl, pf_dur, vf_dur, len, xxx);
+    }
+}
+
+        
 #[test]
 #[ignore]
 fn rough_bench() {
@@ -391,3 +461,53 @@ fn get_random_coeffs() -> Vec<Ft63> {
 
     repeat_with(|| Ft63::random(&mut rng)).take(len).collect()
 }
+
+fn point_to_tensor(x: &Vec<Ft255>) -> Vec<Ft255> {
+    let tensor_x: Vec<Ft255> = (0..1 << x.len()).map(|i| {
+        let mut element: Ft255 = Ft255::one();
+        for j in 0..x.len() {
+            if ((i >> (j)) - ((i >> (j+1)) << 1)) == 0 {
+                element = element * (Ft255::one() - x[j]);
+            }
+            else {
+                element = element * x[j];
+            }
+        }
+        return  element;
+    }).collect();
+    return tensor_x;
+}
+
+/*#[test]
+fn test_basis_element() {
+    let i: i32 = 14;
+    let x: Vec<i32> = vec![2,3,4,5];
+    println!("{:?}", basis_element_1(i, &x));
+}
+
+fn basis_element_1(i: i32, x: &Vec<i32>) ->  i32 {
+    let mut element: i32 = 1;
+    for j in 0..x.len() {
+        if ((i >> (j)) - ((i >> (j+1)) << 1)) == 0 {
+            element = element * (1 - x[j]);
+        }
+        else {
+            element = element * x[j];
+        }
+        println!("{}", element);
+    }
+    return  element;
+}*/
+
+/*fn basis_element(i: i32, x: &Vec<Ft255>) ->  Ft255 {
+    let mut element: Ft255 = Ft255::one();
+    for j in 0..x.len() {
+        if ((i >> (j)) - ((i >> (j+1)) << 1)) == 0 {
+            element = element * (Ft255::one() - x[j]);
+        }
+        else {
+            element = element * x[j];
+        }
+    }
+    return  element;
+}*/
