@@ -135,6 +135,16 @@ impl<F: PrimeField, H: Hash> PartialEq for BasefoldCommitment<F, H> {
 
 impl<F: PrimeField, H: Hash> Eq for BasefoldCommitment<F, H> {}
 
+impl<F: PrimeField, H: Hash>  BasefoldCommitment<F, H> {
+    pub fn codeword_tree(&self) -> &Vec<Vec<Output<H>>> {
+        &self.codeword_tree
+    }
+
+    pub fn codeword_tree_root(&self) -> &Output<H> {
+        self.codeword_tree.last().unwrap().last().unwrap()
+    }
+}
+
 pub trait BasefoldExtParams: Debug {
     fn get_reps() -> usize;
 

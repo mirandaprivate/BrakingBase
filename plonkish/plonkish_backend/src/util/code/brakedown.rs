@@ -73,7 +73,7 @@ impl<F: PrimeField> Brakedown<F> {
 
     pub fn new<S: BrakedownSpec>(
         num_vars: usize,
-        n_0: usize,             // max number of coeffs - 1
+        n_0: usize,             // min(20, no. of coeffs)
         n_1: usize,             // col size    
         rng: impl RngCore,
     ) -> Self {
@@ -81,7 +81,7 @@ impl<F: PrimeField> Brakedown<F> {
 
         let log2_q = F::NUM_BITS as usize;
         let min_log2_n = (n_0 + 1).next_power_of_two().ilog2() as usize;
-        let row_len = (n_0 + 1).next_power_of_two()/n_1;            //assumes n_1 a power of 2
+        let row_len = (1 << num_vars)/n_1;            //assumes n_1 a power of 2 and no of coeffs >= 256
 
         let codeword_len = S::codeword_len(log2_q, row_len, n_0);
         let num_column_opening = S::num_column_opening();
