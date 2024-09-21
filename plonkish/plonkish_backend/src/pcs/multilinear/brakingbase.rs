@@ -1,4 +1,4 @@
-use crate::pcs::multilinear::basefold;
+use crate::pcs::multilinear::{basefold, brakedown};
 use crate::pcs::Commitment;
 use crate::piop::sum_check::{
     classic::{ClassicSumCheck, CoefficientsProver},
@@ -59,6 +59,8 @@ pub struct BrakingbaseParams<F: PrimeField, H: Hash> {
     brakedown: Brakedown<F>,
     brakedown_num_rows: usize,
     num_brakedown_queries: usize,
+    brakedown_row_len: usize,
+    brakedown_codeword_len: usize,
     basefold: BasefoldParams<F>,
     trusted_commits: Vec<BasefoldCommitment<F, H>>
 }
@@ -77,6 +79,8 @@ pub struct BrakingbaseVerifierParams<F: PrimeField, H: Hash> {
     num_vars: usize,
     brakedown_num_rows: usize,
     num_brakedown_queries: usize,
+    brakedown_row_len: usize,
+    brakedown_codeword_len: usize,
     basefold: BasefoldVerifierParams<F>,
     trusted_commits: Vec<BasefoldCommitment<F, H>>
 }
@@ -119,6 +123,8 @@ where
         // Generate the Brakedown code. brakedown contains E_0 as well as H implicitly.
         let brakedown_num_rows = COL_SIZE;
         let brakedown = Brakedown::new::<S>(num_vars, 20.min((1 << num_vars) - 1), brakedown_num_rows, rng);
+        let brakedown_row_len = brakedown.row_len();
+        let brakedown_codeword_len = brakedown.codeword_len();
 
         // Generate BaseFold parameters by running BaseFold's setup algo.
         let basefold = Basefold::<F, H, S>::setup(BLOW_UP_FACTOR*poly_size/COL_SIZE, batch_size, rng).unwrap();
@@ -132,6 +138,8 @@ where
             brakedown: brakedown,        
             brakedown_num_rows: brakedown_num_rows,
             num_brakedown_queries: 0, //compute
+            brakedown_row_len: brakedown_row_len,
+            brakedown_codeword_len: brakedown_codeword_len,
             basefold: basefold,
             trusted_commits: [],  //to generate using Spark
         })
@@ -256,27 +264,43 @@ where
             p_prime.extend(&combined_codeword[row_len..]);
             p_prime.extend(&zero_padding);
         }
+        let p_clone = p.clone();
+        let p_prime_clone = p_prime.clone();
         let commitment_to_p = Basefold::<F, H, S>::commit(&pp.basefold, 
-                                                        &MultilinearPolynomial::new(p)).unwrap();
+                                                        &MultilinearPolynomial::new(p_clone)).unwrap();
         let commitment_to_p_prime = Basefold::<F, H, S>::commit(&pp.basefold, 
-                                                        &MultilinearPolynomial::new(p_prime)).unwrap();
+                                                        &MultilinearPolynomial::new(p_prime_clone)).unwrap();
         transcript.write_commitment(commitment_to_p.codeword_tree_root());     
         transcript.write_commitment(commitment_to_p_prime.codeword_tree_root());    
 
         // Proximity test for the commitment matrix
         let depth = codeword_len.next_power_of_two().ilog2() as usize;
-        for _ in 0..pp.num_brakedown_queries {
-            let col_idx = squeeze_challenge_idx(transcript, codeword_len);
-            transcript.write_field_elements(comm.rows.iter().skip(col_idx).step_by(codeword_len))?;
+        let mut col_idx = vec![0 as usize; pp.num_brakedown_queries];
+        for i in 0..pp.num_brakedown_queries {
+            col_idx[i] = squeeze_challenge_idx(transcript, codeword_len);
+            transcript.write_field_elements(comm.rows.iter().skip(col_idx[i]).step_by(codeword_len))?;
             let mut offset = 0;
             for (idx, width) in (1..=depth).rev().map(|depth| 1 << depth).enumerate() {
-                let neighbor_idx = (col_idx >> idx) ^ 1;
+                let neighbor_idx = (col_idx[i] >> idx) ^ 1;
                 transcript.write_commitment(&comm.intermediate_hashes[offset + neighbor_idx])?;
                 offset += width;
             }    
         }   
 
         // Sum-check and Spark are yet to be implemented
+        let mut mask = vec![F::ZERO; 2 * row_len];
+        for i in 0..pp.num_brakedown_queries {
+            mask[col_idx[i]] = transcript.squeeze_challenge();
+        }
+        let mut p_p_prime = Vec::<F>::new();
+        p_p_prime.extend(&p);
+        p_p_prime.extend(&p_prime);
+        transcript.write_field_elements(&sum_check_prover_round_one(&mask, &p_p_prime));
+        for _ in 1..((2 * row_len).next_power_of_two().ilog2() as usize) {
+            let r = transcript.squeeze_challenge();
+            transcript.write_field_elements(&sum_check_prover_later_round(&mut mask, &mut p_p_prime, r));
+        }  
+
         Ok(())                                      
     }
 
@@ -287,11 +311,51 @@ where
             eval: &F,
             transcript: &mut impl TranscriptRead<Self::CommitmentChunk, F>,
         ) -> Result<(), Error> {
-            let num_rows = pp.brakedown_num_rows;
-            let codeword_len = pp.brakedown.codeword_len();
-            let row_len = pp.brakedown.row_len();
+            let num_rows = vp.brakedown_num_rows;
+            let codeword_len = vp.brakedown_codeword_len;
+            let row_len = vp.brakedown_row_len;
             let (x_0, x_1) = point_to_tensor(num_rows, point);
             let mut combined_codeword = vec![F::ZERO; codeword_len];
+
+            let commitment_to_p = transcript.read_commitment().unwrap();
+            let commitment_to_p_prime = transcript.read_commitment().unwrap(); //Just the roots, not BasefoldCommitment objects
+
+
+            // Read all the queried columns and check their Merkle paths
+            let depth = codeword_len.next_power_of_two().ilog2() as usize;
+            let mut cols = Vec::<F>::new();
+            for _ in 0..vp.num_brakedown_queries {
+                let col_idx = squeeze_challenge_idx(transcript, codeword_len);
+                let col = transcript.read_field_elements(vp.brakedown_num_rows)?;
+                let path = transcript.read_commitments(depth)?;
+
+                // verify merkle tree opening
+                let mut hasher = H::new();
+                let mut output = {
+                    for elem in col.iter() {
+                        hasher.update_field_element(elem);
+    
+                    }
+    
+                    hasher.finalize_fixed_reset()
+                };
+                cols.extend(col);
+                for (idx, neighbor) in path.iter().enumerate() {
+                    if (col_idx >> idx) & 1 == 0 {
+                        hasher.update(&output);
+                        hasher.update(neighbor);
+                    } else {
+                        hasher.update(neighbor);
+                        hasher.update(&output);
+                    }
+                    output = hasher.finalize_fixed_reset();
+                }
+                if &output != &comm.root {
+                    return Err(Error::InvalidPcsOpen(
+                        "Invalid merkle tree opening".to_string(),
+                    ));
+                }
+            }
 
             Ok(())
     }
@@ -314,6 +378,47 @@ fn squeeze_challenge_idx<F: PrimeField>(
     let mut bytes = [0; size_of::<u32>()];
     bytes.copy_from_slice(&challenge.to_repr().as_ref()[..size_of::<u32>()]);
     u32::from_le_bytes(bytes) as usize % cap
+}
+
+fn sum_check_prover_round_one<F: PrimeField>(mask: &Vec<F>, p_p_prime: & Vec<F>) -> Vec<F> {
+    let f_2 = F::ONE + F::ONE;
+    let f_2_inv = f_2.invert().unwrap();
+    let f_3 = f_2 + F::ONE;
+    let mask_at_zero: F = mask[0..mask.len()/2].iter().sum();   
+    let mask_at_one: F =  mask[mask.len()/2..].iter().sum();    
+    let mask_at_two = f_2 * mask_at_one + mask_at_zero;
+    let p_p_prime_at_zero: F = p_p_prime[0..mask.len()/2].iter().sum();                 
+    let p_p_prime_at_one: F = p_p_prime[mask.len()/2..].iter().sum(); 
+    let p_p_prime_at_two = f_2 * p_p_prime_at_one - p_p_prime_at_zero;
+    let a_0 = mask_at_zero * p_p_prime_at_zero;
+    let a_1 = mask_at_one * p_p_prime_at_one;  
+    let a_2 = mask_at_two * p_p_prime_at_two;  
+    [a_0 * f_2_inv - a_1 + a_2 * f_2_inv,
+                f_2 * a_1 - f_3 * a_0 * f_2_inv - a_2 * f_2_inv, a_0].to_vec()
+}
+
+fn sum_check_prover_later_round<F: PrimeField>(mask: &mut Vec<F>, p_p_prime: &mut Vec<F>, r: F) -> Vec<F> {
+    let f_2 = F::ONE + F::ONE;
+    let f_2_inv = f_2.invert().unwrap();
+    let f_3 = f_2 + F::ONE;
+    for i in 0..mask.len()/2 {
+        mask[i] = (F::ONE - r) * mask[i] + r * mask[i + mask.len()/2];
+        p_p_prime[i] = (F::ONE - r) * p_p_prime[i] + r * p_p_prime[i + mask.len()/2];
+    }
+    mask.resize(mask.len()/2, F::ZERO);
+    p_p_prime.resize(mask.len()/2, F::ZERO);
+
+    let mask_at_zero: F = mask[0..mask.len()/2].iter().sum();   
+    let mask_at_one: F =  mask[mask.len()/2..].iter().sum();    
+    let mask_at_two = f_2 * mask_at_one + mask_at_zero;
+    let p_p_prime_at_zero: F = p_p_prime[0..mask.len()/2].iter().sum();                   
+    let p_p_prime_at_one: F = p_p_prime[mask.len()/2..].iter().sum();  
+    let p_p_prime_at_two = f_2 * p_p_prime_at_one - p_p_prime_at_zero;
+    let a_0 = mask_at_zero * p_p_prime_at_zero;
+    let a_1 = mask_at_one * p_p_prime_at_one;  
+    let a_2 = mask_at_two * p_p_prime_at_two;  
+    [a_0 * f_2_inv - a_1 + a_2 * f_2_inv,
+                f_2 * a_1 - f_3 * a_0 * f_2_inv - a_2 * f_2_inv, a_0].to_vec()
 }
 
 
