@@ -331,6 +331,7 @@ where
         let mut combined_codeword = vec![F::ZERO; codeword_len];
 
         // Taking a linear combination of the rows of the commitment matrix
+        //TODO(Vineet): Take par_iter
         for i in 0..num_rows {
             for j in 0..codeword_len {
                 combined_codeword[j] += x_0[i] * comm.rows[codeword_len * i + j];
@@ -339,6 +340,7 @@ where
         
         // Commiting to the message and (codeword - message) parts of comined_codeword
         let mut p: Vec<F> = Vec::new() ; 
+        //TODO Q: What is 16 here?
         for i in 0..16 {
             p.extend(&combined_codeword[0..row_len]);
         }
@@ -371,6 +373,10 @@ where
             }    
         }   
 
+        //TODO 1: Sample the point u.
+        //TODO 2: Realise H(X,u) vector, that is, MLE of the matrix H with Y coordinates replaced by u. This is now a polynomial in X variables.
+        //TODO 3: Commit to H_erow, H_ecol using Basefold
+
         // Sum-check and Spark are yet to be implemented
         let mut mask = vec![F::ZERO; 2 * row_len];
         let challenges = transcript.squeeze_challenges(pp.num_brakedown_queries);
@@ -380,11 +386,37 @@ where
         let mut p_p_prime = Vec::<F>::new();
         p_p_prime.extend(&p[0..row_len]);
         p_p_prime.extend(&p_prime[0..row_len]);
+
+        //TODO 4: Sample two random points here.
+
+        //TODO 5: Make a function called first_sum_check_prover(). Call the function here with p_p_prime, mask, H(X,U), the two random points, and transcript as input here.
+
+        /* first_sum_check_prover() description: does the entire code of the sum_check (all the rounds) and 
+        the messages are included in the transcript within the function. This function takes 
+        transcript as mutable reference. 
+        For reference see the sum-check implemented here https://github.com/arithmic/Dual_PCS/blob/main/Spartan/Spartan_with_gkr/src/prover/batch_eval.rs
+        The len_4 interpolate here will be replaced by the expression you use at the end of  sum_check_prover_round_one or sum_check_prover_later_round
+        */
+
         transcript.write_field_elements(&sum_check_prover_round_one(&mask, &p_p_prime));
         for _ in 1..((2 * row_len).next_power_of_two().ilog2() as usize) {
             let r = transcript.squeeze_challenge();
             transcript.write_field_elements(&sum_check_prover_later_round(&mut mask, &mut p_p_prime, r));
         }  
+
+        //TODO 6: Compute H_val
+        //TODO 7: Make a function called second_sum_check_prover(). Call the function here with H_erow, H_ecol, H_val, and transacript
+        /* second_sum_check_prover() description: does the entire code of the sum_check (all the rounds) and 
+        the messages are included in the transcript within the function. This function takes 
+        transcript as mutable reference. 
+        For reference see the sum-check implemented here https://github.com/arithmic/Dual_PCS/blob/main/Spartan/Spartan_with_gkr/src/prover/batch_eval.rs.
+        The sum-check expression is H_erow\cdot H_ecol \cdot H_eval, and hence would need len_4 interpolate.
+        */
+
+        //TODO: Incorporate GKR from https://github.com/arithmic/Dual_PCS/tree/main/Grand_product/grand_product_with_gkr to our code.
+        //This might need some work, and we might have to sit down with Ashish for this.
+        // We could alternatively also implement Quarks.
+        //Call the grand-product check argument. In total we would have 4 grand-product checks.
 
         Ok(())                                      
     }

@@ -13,3 +13,4 @@ cargo:rustc-check-cfg=cfg(no_std_atomic)
 cargo:rustc-check-cfg=cfg(no_std_atomic64)
 cargo:rustc-check-cfg=cfg(no_systemtime_checked_add)
 cargo:rustc-check-cfg=cfg(no_target_has_atomic)
+cargo:rustc-cfg=no_core_error
