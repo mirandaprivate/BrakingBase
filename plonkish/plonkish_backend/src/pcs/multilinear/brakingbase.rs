@@ -343,8 +343,7 @@ where
             p.extend(&combined_codeword[0..row_len]);
         }
         let mut p_prime: Vec<F> = Vec::new() ; 
-        println!("codeword_len - row_len = {}", codeword_len - row_len);
-        let zero_padding: Vec<F> = vec![F::ZERO; codeword_len - row_len];
+        let zero_padding: Vec<F> = vec![F::ZERO; 2 * row_len - codeword_len];
         for i in 0..16 {
             p_prime.extend(&combined_codeword[row_len..]);
             p_prime.extend(&zero_padding);
@@ -353,7 +352,6 @@ where
         let p_prime_clone = p_prime.clone();
         let commitment_to_p = Basefold::<F, H, S>::commit(&pp.basefold, 
                                                         &MultilinearPolynomial::new(p_clone)).unwrap();
-                                                        println!("HERE");
         let commitment_to_p_prime = Basefold::<F, H, S>::commit(&pp.basefold, 
                                                         &MultilinearPolynomial::new(p_prime_clone)).unwrap();
         transcript.write_commitment(commitment_to_p.codeword_tree_root());     
@@ -380,8 +378,8 @@ where
             mask[col_idx[i]] = challenges[i];
         }
         let mut p_p_prime = Vec::<F>::new();
-        p_p_prime.extend(&p);
-        p_p_prime.extend(&p_prime);
+        p_p_prime.extend(&p[0..row_len]);
+        p_p_prime.extend(&p_prime[0..row_len]);
         transcript.write_field_elements(&sum_check_prover_round_one(&mask, &p_p_prime));
         for _ in 1..((2 * row_len).next_power_of_two().ilog2() as usize) {
             let r = transcript.squeeze_challenge();
@@ -486,7 +484,7 @@ where
                 "Sum check failed".to_string(),
             ));
         }
-        for _ in 0..((2 * row_len).next_power_of_two().ilog2() as usize) {
+        for _ in 1..((2 * row_len).next_power_of_two().ilog2() as usize) {
             let r = transcript.squeeze_challenge();
             sum_check_val = a[0] + a[1] * r + a[2] * r * r;
             a = transcript.read_field_elements(3).unwrap();
@@ -532,7 +530,7 @@ fn squeeze_challenge_idx<F: PrimeField>(
     u32::from_le_bytes(bytes) as usize % cap
 }
 
-fn sum_check_prover_round_one<F: PrimeField>(mask: &Vec<F>, p_p_prime: & Vec<F>) -> Vec<F> {
+fn sum_check_prover_round_one<F: PrimeField>(mask: &Vec<F>, p_p_prime: &Vec<F>) -> Vec<F> {
     let f_2 = F::ONE + F::ONE;
     let f_2_inv = f_2.invert().unwrap();
     let f_3 = f_2 + F::ONE;
@@ -558,7 +556,7 @@ fn sum_check_prover_later_round<F: PrimeField>(mask: &mut Vec<F>, p_p_prime: &mu
         p_p_prime[i] = (F::ONE - r) * p_p_prime[i] + r * p_p_prime[i + mask.len()/2];
     }
     mask.resize(mask.len()/2, F::ZERO);
-    p_p_prime.resize(mask.len()/2, F::ZERO);
+    p_p_prime.resize(p_p_prime.len()/2, F::ZERO);
 
     let mask_at_zero: F = mask[0..mask.len()/2].iter().sum();   
     let mask_at_one: F =  mask[mask.len()/2..].iter().sum();    
