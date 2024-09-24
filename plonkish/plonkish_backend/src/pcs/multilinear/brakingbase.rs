@@ -14,7 +14,7 @@ use crate::{
     poly::{multilinear::MultilinearPolynomial, Polynomial},
     util::{
         arithmetic::{div_ceil, horner, inner_product, steps, BatchInvert, Field, PrimeField},
-        code::{Brakedown, BrakedownSpec, LinearCodes},
+        code::{Brakedown, BrakedownSpec, LinearCodes, ParityCheckMatrix},
         expression::{Expression, Query, Rotation},
         hash::{Hash, Output},
         new_fields::{Mersenne127, Mersenne61},
@@ -49,7 +49,7 @@ use rayon::prelude::{
 use std::{borrow::Cow, marker::PhantomData, mem::size_of, slice};
 use super::basefold::{BasefoldParams, BasefoldProverParams, BasefoldVerifierParams, BasefoldCommitment, 
                         BasefoldExtParams, Basefold};
-use super::brakedown::MultilinearBrakedownCommitment;
+use super::brakedown::{MultilinearBrakedownCommitment};
 
 const COL_SIZE: usize = 256;
 const BLOW_UP_FACTOR: usize = 16;
@@ -63,6 +63,7 @@ pub struct BrakingbaseParams<F: PrimeField, H: Hash> {
     num_brakedown_queries: usize,
     brakedown_row_len: usize,
     brakedown_codeword_len: usize,
+    partity_check_matrix: ParityCheckMatrix<F>,
     basefold: BasefoldParams<F>,
     trusted_commits: Vec<BasefoldCommitment<F, H>>
 }
@@ -73,6 +74,7 @@ pub struct BrakingbaseProverParams<F: PrimeField> {
     brakedown: Brakedown<F>,               // parity check matrix implicitly provided here
     brakedown_num_rows: usize,
     num_brakedown_queries: usize,
+    partity_check_matrix: ParityCheckMatrix<F>,
     basefold: BasefoldProverParams<F>
 }
 
@@ -177,6 +179,9 @@ where
         let mut rng2 = ChaCha8Rng::from_entropy();
         let basefold = Basefold::<F, H, S>::setup(BLOW_UP_FACTOR*poly_size/COL_SIZE, batch_size, rng2).unwrap();
 
+        let parity_check_matrix = brakedown.parity_check_matrix();
+
+    
         // Compute the trusted commits
 
 
@@ -188,6 +193,7 @@ where
             num_brakedown_queries: 0, //compute
             brakedown_row_len: brakedown_row_len,
             brakedown_codeword_len: brakedown_codeword_len,
+            partity_check_matrix: parity_check_matrix,
             basefold: basefold,
             trusted_commits: [].to_vec(),  //to generate using Spark
         })
@@ -208,6 +214,7 @@ where
                 brakedown: param.brakedown.clone(),        
                 brakedown_num_rows: param.brakedown_num_rows,
                 num_brakedown_queries: 0, //compute
+                partity_check_matrix: param.partity_check_matrix.clone(),
                 basefold: basefold_prover_params,
                 },
             BrakingbaseVerifierParams {
@@ -691,15 +698,46 @@ mod test {
     type Pcs = Brakingbase<Fr, Blake2s256, Five>;
 
     #[test]
-    fn test_setup () {
-        let num_vars = 14;
+    fn test_parity_check_matrix () {
+        let num_vars = 13;
         let batch_size = 1;
         let mut rng = ChaCha8Rng::from_entropy();
 
         let params = Pcs::setup(1 << num_vars, batch_size, rng).unwrap();
-        println!("{}, {}, {}, {}", params.num_vars, params.brakedown_row_len, 
-                params.brakedown_num_rows, params.brakedown_codeword_len);
-        println!("{:?}", params.brakedown);
+        let mut parity_check_matrix = vec![vec![Fr::ZERO; params.brakedown_codeword_len - params.brakedown_row_len]; 
+            params.brakedown_codeword_len];
+
+        for i in 0..params.partity_check_matrix.row.len() {
+            let row = params.partity_check_matrix.row[i];
+            let col = params.partity_check_matrix.col[i];
+            parity_check_matrix[row][col] = params.partity_check_matrix.val[i];
+        }
+
+        let mut rng = ChaCha8Rng::from_entropy();
+        let mut msg = vec![Fr::random(&mut rng); params.brakedown_row_len];
+        msg.extend(vec![Fr::ZERO; params.brakedown_codeword_len - params.brakedown_row_len]);
+        params.brakedown.encode(&mut msg);
+        let mut res = vec_matrix_prod(&msg, &parity_check_matrix);
+
+        for i in 0..res.len() {
+            res[i] = res[i] - msg[params.brakedown_row_len + i];
+        } 
+        //println!("{:?}", msg);
+        println!("{:?}", res);
+        //println!("{:?}", parity_check_matrix);
+    }
+
+    #[test]
+    fn test_setup () {
+        let num_vars = 13;
+        let batch_size = 1;
+        let mut rng = ChaCha8Rng::from_entropy();
+
+        let params = Pcs::setup(1 << num_vars, batch_size, rng).unwrap();
+        
+        //println!("{}, {}, {}, {}", params.num_vars, params.brakedown_row_len, 
+         //       params.brakedown_num_rows, params.brakedown_codeword_len);
+        //println!("{:?}", params.brakedown);
         //println!("{:?}", params.basefold);
     }
 
@@ -743,6 +781,20 @@ mod test {
     #[test]
     fn test_open() {
         run_commit_open_verify::<_, Pcs, Blake2sTranscript<_>>();
+    }
+
+    fn vec_matrix_prod<F: PrimeField>  (vc: &Vec::<F>, mat: &Vec<Vec::<F>>) -> Vec::<F>{
+        assert_eq!(vc.len(), mat.len());
+        let cols = mat[0].len();
+        let rows = mat.len();
+        let mut res = vec![F::ZERO; cols];
+    
+            for j in 0..cols {
+                for k in 0..rows {
+                    res[j] += vc[k] * mat[k][j];
+                }
+            }
+        res
     }
 
 }
