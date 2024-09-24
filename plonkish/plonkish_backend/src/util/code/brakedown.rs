@@ -23,8 +23,8 @@ pub struct Brakedown<F> {
     codeword_len: usize,
     num_column_opening: usize,
     num_proximity_testing: usize,
-    a: Vec<SparseMatrix<F>>,
-    b: Vec<SparseMatrix<F>>,
+    pub (super) a: Vec<SparseMatrix<F>>,
+    pub (super) b: Vec<SparseMatrix<F>>,
 }
 
 
@@ -97,6 +97,55 @@ impl<F: PrimeField> Brakedown<F> {
             b,
         }
     }
+
+    pub fn parity_check_matrix(&self) -> ParityCheckMatrix<F> {
+        let mut row = Vec::<usize>::new();
+        let mut col = Vec::<usize>::new();
+        let mut val = Vec::<F>::new();
+        let mut row_offset: usize = 0;
+        let mut col_offset: usize = 0;
+        
+        for i in 0..self.a.len() {
+            let n = self.a[i].dimension.n;
+            let m = self.a[i].dimension.m;
+            let d = self.a[i].dimension.d;
+            for j in 0..self.a[i].cells.len() {
+                val.push(self.a[i].cells[j].1);
+                row.push(row_offset + j/d);
+                col.push(col_offset + self.a[i].cells[j].0);
+            }
+            row_offset += n;
+            col_offset += m;
+        }
+
+        row_offset += 0;    // num rows in the parity check matrix of RS code
+        col_offset += 0;    // num cols in the parity check matrix of RS code
+
+        for i in (0..self.b.len()).rev() {
+            let n = self.b[i].dimension.n;
+            let m = self.b[i].dimension.m;
+            let d = self.b[i].dimension.d;
+            row_offset -= n;
+            for j in 0..self.b[i].cells.len() {
+                val.push(self.b[i].cells[j].1);
+                row.push(row_offset + j/d);
+                col.push(col_offset + self.a[i].cells[j].0);
+            }
+            col_offset += m;
+        }
+
+        ParityCheckMatrix {
+            row: row,
+            col: col,
+            val: val
+        }
+    }
+}
+
+pub struct ParityCheckMatrix<F> {
+    row: Vec<usize>,
+    col: Vec<usize>,
+    val: Vec<F>
 }
 
 impl<F: PrimeField> LinearCodes<F> for Brakedown<F> {
@@ -295,9 +344,12 @@ impl_spec_128!(
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct SparseMatrixDimension {
-    n: usize,
+    pub (super) n: usize,
+    pub (super) m: usize,
+    pub (super) d: usize,
+    /*n: usize,
     m: usize,
-    d: usize,
+    d: usize*/
 }
 
 impl SparseMatrixDimension {
@@ -308,8 +360,8 @@ impl SparseMatrixDimension {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SparseMatrix<F> {
-    dimension: SparseMatrixDimension,
-    cells: Vec<(usize, F)>,
+    pub (super) dimension: SparseMatrixDimension,
+    pub (super) cells: Vec<(usize, F)>,
 }
 
 impl<F: Field> SparseMatrix<F> {

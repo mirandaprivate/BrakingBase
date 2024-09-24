@@ -340,8 +340,10 @@ where
         
         // Commiting to the message and (codeword - message) parts of comined_codeword
         let mut p: Vec<F> = Vec::new() ; 
-        //TODO Q: What is 16 here?
-        for i in 0..16 {
+
+        // TODO Q: What is 16 here? 16 replaced by BLOW_UP_FACTOR. The number of coefficients in H is 
+        // BLOW_UP_FACTOR * (n/\ell).
+        for i in 0..BLOW_UP_FACTOR {
             p.extend(&combined_codeword[0..row_len]);
         }
         let mut p_prime: Vec<F> = Vec::new() ; 
@@ -376,6 +378,8 @@ where
         //TODO 1: Sample the point u.
         //TODO 2: Realise H(X,u) vector, that is, MLE of the matrix H with Y coordinates replaced by u. This is now a polynomial in X variables.
         //TODO 3: Commit to H_erow, H_ecol using Basefold
+
+        let u = transcript.squeeze_challenges(row_len.ilog2().try_into().unwrap());
 
         // Sum-check and Spark are yet to be implemented
         let mut mask = vec![F::ZERO; 2 * row_len];
@@ -688,14 +692,14 @@ mod test {
 
     #[test]
     fn test_setup () {
-        let num_vars = 13;
+        let num_vars = 14;
         let batch_size = 1;
         let mut rng = ChaCha8Rng::from_entropy();
 
         let params = Pcs::setup(1 << num_vars, batch_size, rng).unwrap();
         println!("{}, {}, {}, {}", params.num_vars, params.brakedown_row_len, 
                 params.brakedown_num_rows, params.brakedown_codeword_len);
-        //println!("{:?}", params.brakedown);
+        println!("{:?}", params.brakedown);
         //println!("{:?}", params.basefold);
     }
 
