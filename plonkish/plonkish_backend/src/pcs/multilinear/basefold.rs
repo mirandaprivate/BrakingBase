@@ -68,7 +68,7 @@ type SumCheck<F> = ClassicSumCheck<CoefficientsProver<F>>;
 pub struct BasefoldParams<F: PrimeField> {
     log_rate: usize,
     num_verifier_queries: usize,
-    num_vars: usize,
+    pub num_vars: usize,
     num_rounds: Option<usize>,
     table_w_weights: Vec<Vec<(F, F)>>,
     table: Vec<Vec<F>>,

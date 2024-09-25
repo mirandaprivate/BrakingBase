@@ -116,6 +116,11 @@ impl<F: PrimeField> Brakedown<F> {
                 col.push(col_offset + c);
             }
             row_offset += n;
+            for j in 0..self.b[i].dimension.n {
+                val.push(-F::ONE);
+                row.push(row_offset + j);
+                col.push(col_offset + j);
+            }
             col_offset += m;
         }
         let last_n = self.a.last().unwrap().dimension.n;  
@@ -136,9 +141,86 @@ impl<F: PrimeField> Brakedown<F> {
         rs_enc_mat = multiply_matrix(a_last, rs_enc_mat);
         for i in 0..last_n {
             for j in 0..rs_code_len {
+                val.push(rs_enc_mat[i][j]);
                 row.push(row_offset + i);
                 col.push(col_offset + j);
+            }
+        }
+        row_offset += last_n;    // num rows in the parity check matrix of RS code
+        for j in 0..rs_code_len {
+            val.push(-F::ONE);
+            row.push(row_offset + j);
+            col.push(col_offset + j);
+        }
+        col_offset += rs_code_len;    // num cols in the parity check matrix of RS code
+
+        for i in (0..self.b.len()).rev() {
+            let n = self.b[i].dimension.n;
+            let m = self.b[i].dimension.m;
+            let d = self.b[i].dimension.d;
+            for j in 0..self.b[i].cells.len() {
+                let (c, v) = self.b[i].cells[j];
+                val.push(v);
+                row.push(row_offset + j/d);
+                col.push(col_offset + c);
+            }
+            for j in 0..m {
+                val.push(-F::ONE);
+                row.push(row_offset + n + j);
+                col.push(col_offset + j);
+            }
+            col_offset += m;
+            row_offset -= self.a[i].dimension.n;
+        }
+
+        ParityCheckMatrix {
+            row: row,
+            col: col,
+            val: val
+        }
+    }
+
+    pub fn pseudo_parity_check_matrix(&self) -> ParityCheckMatrix<F> {
+        let mut row = Vec::<usize>::new();
+        let mut col = Vec::<usize>::new();
+        let mut val = Vec::<F>::new();
+        let mut row_offset: usize = 0;
+        let mut col_offset: usize = 0;
+        
+        for i in 0..self.a.len()-1 {
+            let n = self.a[i].dimension.n;
+            let m = self.a[i].dimension.m;
+            let d = self.a[i].dimension.d;
+            for j in 0..self.a[i].cells.len() {
+                let (c, v) = self.a[i].cells[j];
+                val.push(v);
+                row.push(row_offset + j/d);
+                col.push(col_offset + c);
+            }
+            row_offset += n;
+            col_offset += m;
+        }
+        let last_n = self.a.last().unwrap().dimension.n;  
+        let last_m = self.a.last().unwrap().dimension.m;
+        let last_d = self.a.last().unwrap().dimension.d;
+        let mut a_last = vec![vec![F::ZERO; last_m]; last_n];
+        assert_eq!(self.a.last().unwrap().cells.len(), last_n * last_d);
+
+        for i in 0..last_n {
+            for j in 0..last_d {
+                let (col, val) = self.a.last().unwrap().cells[i * last_d + j];
+                a_last[i][col] = val;
+            }
+        }
+
+        let rs_code_len = self.b.last().unwrap().dimension.n;
+        let mut rs_enc_mat = vandermonde_matrix(last_m, rs_code_len);
+        rs_enc_mat = multiply_matrix(a_last, rs_enc_mat);
+        for i in 0..last_n {
+            for j in 0..rs_code_len {
                 val.push(rs_enc_mat[i][j]);
+                row.push(row_offset + i);
+                col.push(col_offset + j);
             }
         }
         row_offset += last_n;    // num rows in the parity check matrix of RS code
