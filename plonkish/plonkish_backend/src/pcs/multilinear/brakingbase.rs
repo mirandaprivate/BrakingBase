@@ -532,8 +532,8 @@ impl<F, H, S> PolynomialCommitmentScheme<F>
         */
         second_sum_check_prover::<F, H, S>(
             sum_check_rounds,
-            h_erow,
-            h_ecol,
+            h_erow.clone(),
+            h_ecol.clone(),
             h_val,
             &mut second_sum_check_random_points,
             transcript
@@ -550,6 +550,45 @@ impl<F, H, S> PolynomialCommitmentScheme<F>
         //This might need some work, and we might have to sit down with Ashish for this.
         // We could alternatively also implement Quarks.
         //Call the grand-product check argument. In total we would have 4 grand-product checks.
+        
+        //Quarks:
+        //TODO 8.1: Sample two random points gamma, tau.
+        let gamma_tau = transcript.squeeze_challenges(2);
+       
+        //TODO 8.2: Build 4*2 vectors
+        /* polynomials required: hrow, h_erow, hrow_read_ts, hrow_final_ts, hcol, h_ecol, hcol_read_ts, hcol_final_ts */ 
+        //let mut circuit_rs_s = vec![F::ZERO; 2 * row_len];
+        
+        //TODO 8.3: Commit to 4 vectors
+        //TODO 8.4: Send claimed values of 4 grand-product checks
+        //TODO 8.5: Sample 4 random points
+        let quark_random_combiners = transcript.squeeze_challenges(4);
+
+        //TODO 8.6: Run 4 sum-checks in parallel for  all 4 circuits with quarks_sum_check_prover. Syntax given below.
+        let sum_check_rounds = h_erow.len().ilog2() as usize;
+        let mut quarks_sum_check_random_points = vec![F::ZERO; sum_check_rounds];
+//         //quarks_sum_check_prover<F,H, S>(
+//     sum_check_rounds,
+//     mut eq_random,
+//     mut circuit_10,
+//     mut circuit_11,
+//     mut circuit_20,
+//     mut circuit_21,
+//     mut circuit_30,
+//     mut circuit_31,
+//     mut circuit_40,
+//     mut circuit_41,
+//     quarks_random_combiner,
+//     quarks_sum_check_random_points,
+//     transcript
+// )
+        
+        //TODO 8.7: Sample an extra random point
+        
+        //TODO 8.8: Evaluate the polynomials at appropriate points
+
+
+
 
         //TODO 9: Batch Evaluate
 
@@ -643,7 +682,7 @@ impl<F, H, S> PolynomialCommitmentScheme<F>
                 sum_check_val += challenges[j] * x_0[i] * cols[j * vp.brakedown_row_len + j];  // make x_1[i]
             }
         }
-
+        println!("Verifier HERE");
         let mut a = transcript.read_field_elements(3).unwrap();
         if sum_check_val != (F::ONE + F::ONE) * a[0] + a[1] + a[2] {
             println!("HERE");
@@ -693,56 +732,56 @@ fn squeeze_challenge_idx<F: PrimeField>(
     (u32::from_le_bytes(bytes) as usize) % cap
 }
 
-fn sum_check_prover_round_one<F: PrimeField>(mask: &Vec<F>, p_p_prime: &Vec<F>) -> Vec<F> {
-    let f_2 = F::ONE + F::ONE;
-    let f_2_inv = f_2.invert().unwrap();
-    let f_3 = f_2 + F::ONE;
-    let mask_at_zero: F = mask[0..mask.len() / 2].iter().sum();
-    let mask_at_one: F = mask[mask.len() / 2..].iter().sum();
-    let mask_at_two = f_2 * mask_at_one + mask_at_zero;
-    let p_p_prime_at_zero: F = p_p_prime[0..mask.len() / 2].iter().sum();
-    let p_p_prime_at_one: F = p_p_prime[mask.len() / 2..].iter().sum();
-    let p_p_prime_at_two = f_2 * p_p_prime_at_one - p_p_prime_at_zero;
-    let a_0 = mask_at_zero * p_p_prime_at_zero;
-    let a_1 = mask_at_one * p_p_prime_at_one;
-    let a_2 = mask_at_two * p_p_prime_at_two;
-    [
-        a_0 * f_2_inv - a_1 + a_2 * f_2_inv,
-        f_2 * a_1 - f_3 * a_0 * f_2_inv - a_2 * f_2_inv,
-        a_0,
-    ].to_vec()
-}
+// fn sum_check_prover_round_one<F: PrimeField>(mask: &Vec<F>, p_p_prime: &Vec<F>) -> Vec<F> {
+//     let f_2 = F::ONE + F::ONE;
+//     let f_2_inv = f_2.invert().unwrap();
+//     let f_3 = f_2 + F::ONE;
+//     let mask_at_zero: F = mask[0..mask.len() / 2].iter().sum();
+//     let mask_at_one: F = mask[mask.len() / 2..].iter().sum();
+//     let mask_at_two = f_2 * mask_at_one + mask_at_zero;
+//     let p_p_prime_at_zero: F = p_p_prime[0..mask.len() / 2].iter().sum();
+//     let p_p_prime_at_one: F = p_p_prime[mask.len() / 2..].iter().sum();
+//     let p_p_prime_at_two = f_2 * p_p_prime_at_one - p_p_prime_at_zero;
+//     let a_0 = mask_at_zero * p_p_prime_at_zero;
+//     let a_1 = mask_at_one * p_p_prime_at_one;
+//     let a_2 = mask_at_two * p_p_prime_at_two;
+//     [
+//         a_0 * f_2_inv - a_1 + a_2 * f_2_inv,
+//         f_2 * a_1 - f_3 * a_0 * f_2_inv - a_2 * f_2_inv,
+//         a_0,
+//     ].to_vec()
+// }
 
-fn sum_check_prover_later_round<F: PrimeField>(
-    mask: &mut Vec<F>,
-    p_p_prime: &mut Vec<F>,
-    r: F
-) -> Vec<F> {
-    let f_2 = F::ONE + F::ONE;
-    let f_2_inv = f_2.invert().unwrap();
-    let f_3 = f_2 + F::ONE;
-    for i in 0..mask.len() / 2 {
-        mask[i] = (F::ONE - r) * mask[i] + r * mask[i + mask.len() / 2];
-        p_p_prime[i] = (F::ONE - r) * p_p_prime[i] + r * p_p_prime[i + mask.len() / 2];
-    }
-    mask.resize(mask.len() / 2, F::ZERO);
-    p_p_prime.resize(p_p_prime.len() / 2, F::ZERO);
+// fn sum_check_prover_later_round<F: PrimeField>(
+//     mask: &mut Vec<F>,
+//     p_p_prime: &mut Vec<F>,
+//     r: F
+// ) -> Vec<F> {
+//     let f_2 = F::ONE + F::ONE;
+//     let f_2_inv = f_2.invert().unwrap();
+//     let f_3 = f_2 + F::ONE;
+//     for i in 0..mask.len() / 2 {
+//         mask[i] = (F::ONE - r) * mask[i] + r * mask[i + mask.len() / 2];
+//         p_p_prime[i] = (F::ONE - r) * p_p_prime[i] + r * p_p_prime[i + mask.len() / 2];
+//     }
+//     mask.resize(mask.len() / 2, F::ZERO);
+//     p_p_prime.resize(p_p_prime.len() / 2, F::ZERO);
 
-    let mask_at_zero: F = mask[0..mask.len() / 2].iter().sum();
-    let mask_at_one: F = mask[mask.len() / 2..].iter().sum();
-    let mask_at_two = f_2 * mask_at_one + mask_at_zero;
-    let p_p_prime_at_zero: F = p_p_prime[0..mask.len() / 2].iter().sum();
-    let p_p_prime_at_one: F = p_p_prime[mask.len() / 2..].iter().sum();
-    let p_p_prime_at_two = f_2 * p_p_prime_at_one - p_p_prime_at_zero;
-    let a_0 = mask_at_zero * p_p_prime_at_zero;
-    let a_1 = mask_at_one * p_p_prime_at_one;
-    let a_2 = mask_at_two * p_p_prime_at_two;
-    [
-        a_0 * f_2_inv - a_1 + a_2 * f_2_inv,
-        f_2 * a_1 - f_3 * a_0 * f_2_inv - a_2 * f_2_inv,
-        a_0,
-    ].to_vec()
-}
+//     let mask_at_zero: F = mask[0..mask.len() / 2].iter().sum();
+//     let mask_at_one: F = mask[mask.len() / 2..].iter().sum();
+//     let mask_at_two = f_2 * mask_at_one + mask_at_zero;
+//     let p_p_prime_at_zero: F = p_p_prime[0..mask.len() / 2].iter().sum();
+//     let p_p_prime_at_one: F = p_p_prime[mask.len() / 2..].iter().sum();
+//     let p_p_prime_at_two = f_2 * p_p_prime_at_one - p_p_prime_at_zero;
+//     let a_0 = mask_at_zero * p_p_prime_at_zero;
+//     let a_1 = mask_at_one * p_p_prime_at_one;
+//     let a_2 = mask_at_two * p_p_prime_at_two;
+//     [
+//         a_0 * f_2_inv - a_1 + a_2 * f_2_inv,
+//         f_2 * a_1 - f_3 * a_0 * f_2_inv - a_2 * f_2_inv,
+//         a_0,
+//     ].to_vec()
+// }
 
 //first_sum_check_prover(). Call the function here with p_p_prime, mask, H(X,U), the two random points, and transcript as input here.
 pub fn first_sum_check_prover<F,H, S>(
@@ -865,6 +904,221 @@ where F: PrimeField + Serialize + DeserializeOwned, H: Hash, S: BrakingbaseSpec
         h_ecol.resize(h_ecol.len() / 2, F::ZERO);
         h_val.resize(h_val.len() / 2, F::ZERO);
         
+    }
+}
+
+pub fn quarks_sum_check_prover<F,H, S>(
+    sum_check_rounds: usize,
+    mut eq_random: Vec<F>,
+    mut circuit_10: Vec<F>,
+    mut circuit_11: Vec<F>,
+    mut circuit_20: Vec<F>,
+    mut circuit_21: Vec<F>,
+    mut circuit_30: Vec<F>,
+    mut circuit_31: Vec<F>,
+    mut circuit_40: Vec<F>,
+    mut circuit_41: Vec<F>,
+    quarks_random_combiner: Vec<F>,
+    quarks_sum_check_random_points: &mut Vec<F>,
+    transcript: &mut impl TranscriptWrite<<Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::CommitmentChunk, F>
+)
+where F: PrimeField + Serialize + DeserializeOwned, H: Hash, S: BrakingbaseSpec
+ {
+    let mut circuit_1_even = vec![F::ZERO; circuit_10.len()];
+    for i in 0..circuit_10.len()/2{
+        circuit_1_even[i] = circuit_10[2*i];
+        circuit_1_even[i + circuit_10.len()/2] = circuit_11[2*i]
+    }
+    let mut circuit_1_odd = vec![F::ZERO; circuit_10.len()];
+    for i in 0..circuit_10.len()/2{
+        circuit_1_odd[i] = circuit_10[2*i+1];
+        circuit_1_odd[i + circuit_10.len()/2] = circuit_11[2*i+1]
+    }
+
+    let mut circuit_2_even = vec![F::ZERO; circuit_20.len()];
+    for i in 0..circuit_20.len()/2{
+        circuit_2_even[i] = circuit_20[2*i];
+        circuit_2_even[i + circuit_20.len()/2] = circuit_21[2*i]
+    }
+    let mut circuit_2_odd = vec![F::ZERO; circuit_20.len()];
+    for i in 0..circuit_20.len()/2{
+        circuit_2_odd[i] = circuit_20[2*i+1];
+        circuit_2_odd[i + circuit_20.len()/2] = circuit_21[2*i+1]
+    }
+
+    let mut circuit_3_even = vec![F::ZERO; circuit_30.len()];
+    for i in 0..circuit_30.len()/2{
+        circuit_3_even[i] = circuit_30[2*i];
+        circuit_3_even[i + circuit_30.len()/2] = circuit_31[2*i]
+    }
+    let mut circuit_3_odd = vec![F::ZERO; circuit_30.len()];
+    for i in 0..circuit_30.len()/2{
+        circuit_3_odd[i] = circuit_30[2*i+1];
+        circuit_3_odd[i + circuit_30.len()/2] = circuit_31[2*i+1]
+    }
+
+    let mut circuit_4_even = vec![F::ZERO; circuit_40.len()];
+    for i in 0..circuit_40.len()/2{
+        circuit_4_even[i] = circuit_40[2*i];
+        circuit_4_even[i + circuit_40.len()/2] = circuit_41[2*i]
+    }
+    let mut circuit_4_odd = vec![F::ZERO; circuit_40.len()];
+    for i in 0..circuit_40.len()/2{
+        circuit_4_odd[i] = circuit_40[2*i+1];
+        circuit_4_odd[i + circuit_40.len()/2] = circuit_41[2*i+1]
+    }
+
+    //transcript.write_field_elements(&sum_check_prover_round_one(&mask, &p_p_prime));
+    for i in 0..sum_check_rounds {
+        let f_2 = F::ONE + F::ONE;
+        let f_2_inv = f_2.invert().unwrap();
+        let f_3 = f_2 + F::ONE;
+
+        let circuit_11_at_zero: F = circuit_11[0..circuit_11.len() / 2].iter().sum();
+        let circuit_11_at_one: F = circuit_11[circuit_11.len() / 2..].iter().sum();
+        let circuit_11_at_two = f_2 * circuit_11_at_one - circuit_11_at_zero;
+        let circuit_11_at_minus_one = f_2 * circuit_11_at_zero - circuit_11_at_one;
+
+        let circuit_1_even_at_zero: F = circuit_1_even[0..circuit_1_even.len() / 2].iter().sum();
+        let circuit_1_even_at_one: F = circuit_1_even[circuit_1_even.len() / 2..].iter().sum();
+        let circuit_1_even_at_two = f_2 * circuit_1_even_at_one - circuit_1_even_at_zero;
+        let circuit_1_even_at_minus_one = f_2 * circuit_1_even_at_zero - circuit_1_even_at_one;
+
+        let circuit_1_odd_at_zero: F = circuit_1_odd[0..circuit_1_odd.len() / 2].iter().sum();
+        let circuit_1_odd_at_one: F = circuit_1_odd[circuit_1_odd.len() / 2..].iter().sum();
+        let circuit_1_odd_at_two = f_2 * circuit_1_odd_at_one - circuit_1_odd_at_zero;
+        let circuit_1_odd_at_minus_one = f_2 * circuit_1_odd_at_zero - circuit_1_odd_at_one;
+        
+        let circuit_21_at_zero: F = circuit_21[0..circuit_21.len() / 2].iter().sum();
+        let circuit_21_at_one: F = circuit_21[circuit_21.len() / 2..].iter().sum();
+        let circuit_21_at_two = f_2 * circuit_21_at_one - circuit_21_at_zero;
+        let circuit_21_at_minus_one = f_2 * circuit_21_at_zero - circuit_21_at_one;
+
+        let circuit_2_even_at_zero: F = circuit_2_even[0..circuit_2_even.len() / 2].iter().sum();
+        let circuit_2_even_at_one: F = circuit_2_even[circuit_2_even.len() / 2..].iter().sum();
+        let circuit_2_even_at_two = f_2 * circuit_2_even_at_one - circuit_2_even_at_zero;
+        let circuit_2_even_at_minus_one = f_2 * circuit_2_even_at_zero - circuit_2_even_at_one;
+
+        let circuit_2_odd_at_zero: F = circuit_2_odd[0..circuit_2_odd.len() / 2].iter().sum();
+        let circuit_2_odd_at_one: F = circuit_2_odd[circuit_2_odd.len() / 2..].iter().sum();
+        let circuit_2_odd_at_two = f_2 * circuit_2_odd_at_one - circuit_2_odd_at_zero;
+        let circuit_2_odd_at_minus_one = f_2 * circuit_2_odd_at_zero - circuit_2_odd_at_one;
+
+        let circuit_31_at_zero: F = circuit_31[0..circuit_31.len() / 2].iter().sum();
+        let circuit_31_at_one: F = circuit_31[circuit_31.len() / 2..].iter().sum();
+        let circuit_31_at_two = f_2 * circuit_31_at_one - circuit_31_at_zero;
+        let circuit_31_at_minus_one = f_2 * circuit_31_at_zero - circuit_31_at_one;
+
+        let circuit_3_even_at_zero: F = circuit_3_even[0..circuit_3_even.len() / 2].iter().sum();
+        let circuit_3_even_at_one: F = circuit_3_even[circuit_3_even.len() / 2..].iter().sum();
+        let circuit_3_even_at_two = f_2 * circuit_3_even_at_one - circuit_3_even_at_zero;
+        let circuit_3_even_at_minus_one = f_2 * circuit_3_even_at_zero - circuit_3_even_at_one;
+
+        let circuit_3_odd_at_zero: F = circuit_3_odd[0..circuit_3_odd.len() / 2].iter().sum();
+        let circuit_3_odd_at_one: F = circuit_3_odd[circuit_3_odd.len() / 2..].iter().sum();
+        let circuit_3_odd_at_two = f_2 * circuit_3_odd_at_one - circuit_3_odd_at_zero;
+        let circuit_3_odd_at_minus_one = f_2 * circuit_3_odd_at_zero - circuit_3_odd_at_one;
+
+        let circuit_41_at_zero: F = circuit_41[0..circuit_41.len() / 2].iter().sum();
+        let circuit_41_at_one: F = circuit_41[circuit_41.len() / 2..].iter().sum();
+        let circuit_41_at_two = f_2 * circuit_41_at_one - circuit_41_at_zero;
+        let circuit_41_at_minus_one = f_2 * circuit_41_at_zero - circuit_41_at_one;
+
+        let circuit_4_even_at_zero: F = circuit_4_even[0..circuit_4_even.len() / 2].iter().sum();
+        let circuit_4_even_at_one: F = circuit_4_even[circuit_4_even.len() / 2..].iter().sum();
+        let circuit_4_even_at_two = f_2 * circuit_4_even_at_one - circuit_4_even_at_zero;
+        let circuit_4_even_at_minus_one = f_2 * circuit_4_even_at_zero - circuit_4_even_at_one;
+
+        let circuit_4_odd_at_zero: F = circuit_4_odd[0..circuit_4_odd.len() / 2].iter().sum();
+        let circuit_4_odd_at_one: F = circuit_4_odd[circuit_4_odd.len() / 2..].iter().sum();
+        let circuit_4_odd_at_two = f_2 * circuit_4_odd_at_one - circuit_4_odd_at_zero;
+        let circuit_4_odd_at_minus_one = f_2 * circuit_4_odd_at_zero - circuit_4_odd_at_one;
+
+        let eq_random_at_zero: F = eq_random[0..eq_random.len() / 2].iter().sum();
+        let eq_random_at_one: F = eq_random[eq_random.len() / 2..].iter().sum();
+        let eq_random_at_two = f_2 * eq_random_at_one - eq_random_at_zero;
+        let eq_random_at_minus_one = f_2 * eq_random_at_zero - eq_random_at_one;
+
+        let val1 = ( circuit_11_at_zero -  circuit_1_even_at_zero * circuit_1_odd_at_zero);
+        let val2 = ( circuit_21_at_zero -  circuit_2_even_at_zero * circuit_2_odd_at_zero);
+        let val3 = ( circuit_31_at_zero -  circuit_3_even_at_zero * circuit_3_odd_at_zero);
+        let val4 = ( circuit_41_at_zero -  circuit_4_even_at_zero * circuit_4_odd_at_zero);
+        let a_0 = eq_random_at_zero * ( quarks_random_combiner[0] * val1 + quarks_random_combiner[1] * val2 + quarks_random_combiner[2] * val3 + quarks_random_combiner[3] * val4);
+        
+        let val1 = ( circuit_11_at_one -  circuit_1_even_at_one * circuit_1_odd_at_one);
+        let val2 = ( circuit_21_at_one -  circuit_2_even_at_one * circuit_2_odd_at_one);
+        let val3 = ( circuit_31_at_one -  circuit_3_even_at_one * circuit_3_odd_at_one);
+        let val4 = ( circuit_41_at_one -  circuit_4_even_at_one * circuit_4_odd_at_one);
+        let a_1 = eq_random_at_one * ( quarks_random_combiner[0] * val1 + quarks_random_combiner[1] * val2 + quarks_random_combiner[2] * val3 + quarks_random_combiner[3] * val4);
+        
+        let val1 = ( circuit_11_at_two -  circuit_1_even_at_two * circuit_1_odd_at_two);
+        let val2 = ( circuit_21_at_two -  circuit_2_even_at_two * circuit_2_odd_at_two);
+        let val3 = ( circuit_31_at_two -  circuit_3_even_at_two * circuit_3_odd_at_two);
+        let val4 = ( circuit_41_at_two -  circuit_4_even_at_two * circuit_4_odd_at_two);
+        let a_2 = eq_random_at_two * ( quarks_random_combiner[0] * val1 + quarks_random_combiner[1] * val2 + quarks_random_combiner[2] * val3 + quarks_random_combiner[3] * val4);
+
+        let val1 = ( circuit_11_at_minus_one -  circuit_1_even_at_minus_one * circuit_1_odd_at_minus_one);
+        let val2 = ( circuit_21_at_minus_one -  circuit_2_even_at_minus_one * circuit_2_odd_at_minus_one);
+        let val3 = ( circuit_31_at_minus_one -  circuit_3_even_at_minus_one * circuit_3_odd_at_minus_one);
+        let val4 = ( circuit_41_at_minus_one -  circuit_4_even_at_minus_one * circuit_4_odd_at_minus_one);
+        let a_minus_one = eq_random_at_minus_one * ( quarks_random_combiner[0] * val1 + quarks_random_combiner[1] * val2 + quarks_random_combiner[2] * val3 + quarks_random_combiner[3] * val4);
+        
+
+        //TODO (Bhargav): edit the following expression to derive the 4 coefficients
+        let f_2 = F::ONE + F::ONE;
+        let f_2_inv = f_2.invert().unwrap();
+        let f_3 = f_2 + F::ONE;
+        let f_3_inv = f_3.invert().unwrap();
+        let f_6 = f_3 + f_3;
+        let f_6_inv = f_6.invert().unwrap();
+        let polynomial_current_round = [
+            a_0 * f_2_inv  - a_1 * f_2_inv + a_2 * f_6_inv - a_minus_one * f_6_inv,
+            -a_0 + a_1 * f_2_inv + a_minus_one * f_2_inv,
+            -a_0 * f_2_inv  + a_1 - a_2 * f_6_inv - a_minus_one * f_3_inv,
+            a_0
+        ].to_vec();
+        transcript.write_field_elements(
+            &polynomial_current_round
+        );
+        let r = transcript.squeeze_challenge();
+        quarks_sum_check_random_points[i] = r;
+
+        for i in 0..circuit_10.len() / 2 {
+            circuit_11[i] = (F::ONE - r) * circuit_11[i] + r * circuit_11[i + circuit_11.len() / 2];
+            circuit_1_even[i] = (F::ONE - r) * circuit_1_even[i] + r * circuit_1_even[i + circuit_1_even.len() / 2];
+            circuit_1_odd[i] = (F::ONE - r) * circuit_1_odd[i] + r * circuit_1_odd[i + circuit_1_odd.len() / 2];
+            
+            circuit_21[i] = (F::ONE - r) * circuit_21[i] + r * circuit_21[i + circuit_21.len() / 2];
+            circuit_2_even[i] = (F::ONE - r) * circuit_2_even[i] + r * circuit_2_even[i + circuit_2_even.len() / 2];
+            circuit_2_odd[i] = (F::ONE - r) * circuit_2_odd[i] + r * circuit_2_odd[i + circuit_2_odd.len() / 2];
+
+            circuit_31[i] = (F::ONE - r) * circuit_31[i] + r * circuit_31[i + circuit_31.len() / 2];
+            circuit_3_even[i] = (F::ONE - r) * circuit_3_even[i] + r * circuit_3_even[i + circuit_3_even.len() / 2];
+            circuit_3_odd[i] = (F::ONE - r) * circuit_3_odd[i] + r * circuit_3_odd[i + circuit_3_odd.len() / 2];
+
+            circuit_41[i] = (F::ONE - r) * circuit_41[i] + r * circuit_41[i + circuit_41.len() / 2];
+            circuit_4_even[i] = (F::ONE - r) * circuit_4_even[i] + r * circuit_4_even[i + circuit_4_even.len() / 2];
+            circuit_4_odd[i] = (F::ONE - r) * circuit_4_odd[i] + r * circuit_4_odd[i + circuit_4_odd.len() / 2];
+
+            eq_random[i] = (F::ONE - r) * eq_random[i] + r * eq_random[i + eq_random.len() / 2];
+        }
+        circuit_11.resize(circuit_11.len() / 2, F::ZERO);
+        circuit_1_even.resize(circuit_1_even.len() / 2, F::ZERO);
+        circuit_1_odd.resize(circuit_1_odd.len() / 2, F::ZERO);
+        
+        circuit_21.resize(circuit_21.len() / 2, F::ZERO);
+        circuit_2_even.resize(circuit_2_even.len() / 2, F::ZERO);
+        circuit_2_odd.resize(circuit_2_odd.len() / 2, F::ZERO);
+
+        circuit_31.resize(circuit_31.len() / 2, F::ZERO);
+        circuit_3_even.resize(circuit_3_even.len() / 2, F::ZERO);
+        circuit_3_odd.resize(circuit_3_odd.len() / 2, F::ZERO);
+
+        circuit_41.resize(circuit_41.len() / 2, F::ZERO);
+        circuit_4_even.resize(circuit_4_even.len() / 2, F::ZERO);
+        circuit_4_odd.resize(circuit_4_odd.len() / 2, F::ZERO);
+
+        eq_random.resize(eq_random.len() / 2, F::ZERO);
     }
 }
 
