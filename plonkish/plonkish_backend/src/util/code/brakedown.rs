@@ -134,7 +134,6 @@ impl<F: PrimeField> Brakedown<F> {
         let rs_code_len = self.b.last().unwrap().dimension.n;
         let mut rs_enc_mat = vandermonde_matrix(last_m, rs_code_len);
         rs_enc_mat = multiply_matrix(a_last, rs_enc_mat);
-        println!("Base dim: {} {}", last_m, rs_code_len);
         for i in 0..last_n {
             for j in 0..rs_code_len {
                 row.push(row_offset + i);
