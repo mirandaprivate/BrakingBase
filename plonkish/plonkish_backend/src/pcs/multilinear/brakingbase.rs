@@ -38,6 +38,7 @@ use crate::{
 use aes::cipher::{ KeyIvInit, StreamCipher, StreamCipherSeek };
 use bitvec::vec;
 use halo2_proofs::poly::commitment;
+use rand::random;
 use core::fmt::Debug;
 use core::{ hash, num };
 use core::ptr::addr_of;
@@ -200,6 +201,7 @@ impl<F, H, S> PolynomialCommitmentScheme<F>
         );
         let brakedown_row_len = brakedown.row_len();
         let brakedown_codeword_len = brakedown.codeword_len();
+        let num_brakedown_queries = brakedown.num_column_opening();
         let parity_check_matrix = brakedown.parity_check_matrix();
         let blow_up_factor = parity_check_matrix.row.len().next_power_of_two()/brakedown_row_len;
 
@@ -242,7 +244,7 @@ impl<F, H, S> PolynomialCommitmentScheme<F>
             num_vars: num_vars,
             brakedown: brakedown,
             brakedown_num_rows: brakedown_num_rows,
-            num_brakedown_queries: 0, //compute
+            num_brakedown_queries: num_brakedown_queries,
             brakedown_row_len: brakedown_row_len,
             brakedown_codeword_len: brakedown_codeword_len,
             partity_check_matrix: parity_check_matrix,
@@ -401,7 +403,7 @@ impl<F, H, S> PolynomialCommitmentScheme<F>
             }
         }
 
-        // Commiting to the message and (codeword - message) parts of comined_codeword
+        // Commiting to the message and (codeword - message) parts of combined_codeword
         let mut p: Vec<F> = Vec::new();
 
         // The number of coefficients in H is pp.blow_up_factor * row_len.
@@ -424,15 +426,14 @@ impl<F, H, S> PolynomialCommitmentScheme<F>
             .unwrap();
         transcript.write_commitment(p_commit.codeword_tree_root());
         transcript.write_commitment(p_prime_commit.codeword_tree_root());
+        transcript.write_field_element(&F::ZERO);
 
         // Proximity test for the commitment matrix
         let depth = codeword_len.next_power_of_two().ilog2() as usize;
         let mut col_idx = vec![0 as usize; pp.num_brakedown_queries];
         for i in 0..pp.num_brakedown_queries {
             col_idx[i] = squeeze_challenge_idx(transcript, codeword_len);
-            transcript.write_field_elements(
-                comm.rows.iter().skip(col_idx[i]).step_by(codeword_len)
-            )?;
+            transcript.write_field_elements(comm.rows.iter().skip(col_idx[i]).step_by(codeword_len))?;
             let mut offset = 0;
             for (idx, width) in (1..=depth)
                 .rev()
@@ -639,6 +640,7 @@ impl<F, H, S> PolynomialCommitmentScheme<F>
 
         let commitment_to_p = transcript.read_commitment().unwrap();
         let commitment_to_p_prime = transcript.read_commitment().unwrap(); //Just the roots, not BasefoldCommitment objects
+        let a = transcript.read_field_element().unwrap();
 
         // Read all the queried columns and check their Merkle paths
         let depth = codeword_len.next_power_of_two().ilog2() as usize;
@@ -675,19 +677,22 @@ impl<F, H, S> PolynomialCommitmentScheme<F>
             }
         }
 
+        let u = transcript.squeeze_challenges(row_len.ilog2().try_into().unwrap());
+
         let mut sum_check_val = F::ZERO;
         let challenges = transcript.squeeze_challenges(vp.num_brakedown_queries);
         for j in 0..vp.num_brakedown_queries {
             for i in 0..vp.brakedown_row_len {
-                sum_check_val += challenges[j] * x_0[i] * cols[j * vp.brakedown_row_len + j];  // make x_1[i]
+                sum_check_val += challenges[j] * x_0[i] * cols[j * vp.brakedown_row_len + j];  // make x_1[i] ?
+                println!("{:?}, {:?}", challenges[i], sum_check_val);
             }
         }
-        println!("Verifier HERE");
+        let random_combiners = transcript.squeeze_challenges(2);
+        sum_check_val *= random_combiners[0];
         let mut a = transcript.read_field_elements(3).unwrap();
         if sum_check_val != (F::ONE + F::ONE) * a[0] + a[1] + a[2] {
-            println!("HERE");
+            println!("{:?}, {:?}", sum_check_val, (F::ONE + F::ONE) * a[0] + a[1] + a[2]);
             return Err(Error::InvalidPcsOpen("Sum check failed".to_string()));
-            println!("NOT HERE");
         }
         for _ in 1..(2 * row_len).next_power_of_two().ilog2() as usize {
             let r = transcript.squeeze_challenge();
