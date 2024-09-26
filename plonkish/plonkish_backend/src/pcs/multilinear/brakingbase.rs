@@ -98,7 +98,7 @@ pub struct BrakingbaseProverParams<F: PrimeField> {
     brakedown: Brakedown<F>, // parity check matrix implicitly provided here
     brakedown_num_rows: usize,
     num_brakedown_queries: usize,
-    partity_check_matrix: ParityCheckMatrix<F>,
+    parity_check_matrix: ParityCheckMatrix<F>,
     blow_up_factor: usize,
     basefold: BasefoldProverParams<F>
 
@@ -207,9 +207,9 @@ impl<F, H, S> PolynomialCommitmentScheme<F>
 
         // Generate BaseFold parameters by running BaseFold's setup algo.
         let mut rng2 = ChaCha8Rng::from_entropy();
+        let basefold_poly_size = (blow_up_factor * poly_size) / COL_SIZE;
         let basefold = Basefold::<F, H, S>
-            ::setup((blow_up_factor * poly_size) / COL_SIZE, batch_size, rng2)
-            .unwrap();
+            ::setup(basefold_poly_size, batch_size, rng2).unwrap();
 
         
         // Compute the trusted commits
@@ -217,15 +217,21 @@ impl<F, H, S> PolynomialCommitmentScheme<F>
             ::trim(&basefold, poly_size, batch_size)
             .unwrap();
         let mut val = parity_check_matrix.clone().val;
-        val.resize((blow_up_factor * poly_size) / COL_SIZE, F::ZERO);
-        let mut row = vec![F::ZERO; (blow_up_factor * poly_size) / COL_SIZE];
-        let mut col = vec![F::ZERO; (blow_up_factor * poly_size) / COL_SIZE];
+        val.resize(basefold_poly_size, F::ZERO);
+        let mut row = vec![F::ZERO; basefold_poly_size];
+        let mut col = vec![F::ZERO; basefold_poly_size];
         for i in 0..parity_check_matrix.row.len() {
             row[i] = F::try_from(parity_check_matrix.row[i] as u64).unwrap();
         }
         for i in 0..parity_check_matrix.row.len() {
             col[i] = F::try_from(parity_check_matrix.col[i] as u64).unwrap();
         }
+
+        let (mut read_ts_row, mut final_ts_row, mut read_ts_col, mut final_ts_col) = get_timestamps
+            (&row, &col, 2 * brakedown_row_len);
+        final_ts_row.resize(basefold_poly_size, F::ZERO);
+        final_ts_col.resize(basefold_poly_size, F::ZERO);
+
         let mut trusted_commits = Vec::<BasefoldCommitment<F, H>>::new();
         trusted_commits.push(Basefold::<F, H, S>
             ::commit(&basefold_prover_params, 
@@ -240,6 +246,24 @@ impl<F, H, S> PolynomialCommitmentScheme<F>
                 &MultilinearPolynomial::<F>::new(col))
             .unwrap());
 
+        trusted_commits.push(Basefold::<F, H, S>
+                ::commit(&basefold_prover_params, 
+                    &MultilinearPolynomial::<F>::new(read_ts_row))
+                .unwrap());
+        trusted_commits.push(Basefold::<F, H, S>
+                ::commit(&basefold_prover_params, 
+                    &MultilinearPolynomial::<F>::new(final_ts_row))
+                .unwrap());
+        trusted_commits.push(Basefold::<F, H, S>
+                ::commit(&basefold_prover_params, 
+                    &MultilinearPolynomial::<F>::new(read_ts_col))
+                .unwrap());
+        trusted_commits.push(Basefold::<F, H, S>
+                ::commit(&basefold_prover_params, 
+                    &MultilinearPolynomial::<F>::new(final_ts_col))
+                .unwrap());
+
+
         Ok(BrakingbaseParams {
             num_vars: num_vars,
             brakedown: brakedown,
@@ -252,7 +276,7 @@ impl<F, H, S> PolynomialCommitmentScheme<F>
             basefold: basefold,
             basefold_prover_params: basefold_prover_params,
             basefold_verifier_params: basefold_verifier_params,
-            trusted_commits: [].to_vec(), //to generate using Spark
+            trusted_commits: trusted_commits
         })
     }
 
@@ -270,8 +294,8 @@ impl<F, H, S> PolynomialCommitmentScheme<F>
                 num_vars: param.num_vars,
                 brakedown: param.brakedown.clone(),
                 brakedown_num_rows: param.brakedown_num_rows,
-                num_brakedown_queries: 0, //compute
-                partity_check_matrix: param.partity_check_matrix.clone(),
+                num_brakedown_queries: param.num_brakedown_queries,
+                parity_check_matrix: param.partity_check_matrix.clone(),
                 blow_up_factor: param.blow_up_factor,
                 basefold: param.basefold_prover_params.clone(),
             },
@@ -391,6 +415,8 @@ impl<F, H, S> PolynomialCommitmentScheme<F>
         let num_rows = pp.brakedown_num_rows;
         let codeword_len = pp.brakedown.codeword_len();
         let row_len = pp.brakedown.row_len();
+        let blow_up_factor = pp.parity_check_matrix.row.len().next_power_of_two()/pp.brakedown.row_len();
+        let basefold_poly_size = (blow_up_factor * (1 << pp.num_vars)) / COL_SIZE;
         let (x_0, x_1) = point_to_tensor(num_rows, point);
         let mut combined_codeword = vec![F::ZERO; codeword_len];
 
@@ -426,11 +452,11 @@ impl<F, H, S> PolynomialCommitmentScheme<F>
             .unwrap();
         transcript.write_commitment(p_commit.codeword_tree_root());
         transcript.write_commitment(p_prime_commit.codeword_tree_root());
-        transcript.write_field_element(&F::ZERO);
 
         // Proximity test for the commitment matrix
         let depth = codeword_len.next_power_of_two().ilog2() as usize;
         let mut col_idx = vec![0 as usize; pp.num_brakedown_queries];
+        println!("vars = {}, queries = {}", pp.num_vars, pp.num_brakedown_queries);
         for i in 0..pp.num_brakedown_queries {
             col_idx[i] = squeeze_challenge_idx(transcript, codeword_len);
             transcript.write_field_elements(comm.rows.iter().skip(col_idx[i]).step_by(codeword_len))?;
@@ -449,8 +475,9 @@ impl<F, H, S> PolynomialCommitmentScheme<F>
         let u = transcript.squeeze_challenges(row_len.ilog2().try_into().unwrap());
 
         //TODO 2: Realise H(X,u) vector, that is, MLE of the matrix H with Y coordinates replaced by u. This is now a polynomial in X variables.
-        let mut h = evaluate_H(&pp.partity_check_matrix, &u, pp.brakedown.codeword_len());
+        let mut h = evaluate_H(&pp.parity_check_matrix, &u, pp.brakedown.codeword_len());
         h.resize(2 * row_len, F::ZERO);
+
 
         let mut mask = vec![F::ZERO; 2 * row_len];
         let challenges = transcript.squeeze_challenges(pp.num_brakedown_queries);
@@ -460,6 +487,7 @@ impl<F, H, S> PolynomialCommitmentScheme<F>
         let mut p_p_prime = Vec::<F>::new();
         p_p_prime.extend(&p[0..row_len]);
         p_p_prime.extend(&p_prime[0..row_len]);
+        println!("Length of p_p_prime = {}", p_p_prime.len());
 
         //TODO 4: Sample two random points here.
         let random_combiners = transcript.squeeze_challenges(2);
@@ -499,14 +527,14 @@ impl<F, H, S> PolynomialCommitmentScheme<F>
 
         //TODO 6.1: Commit to H_erow, H_ecol using Basefold
         //TODO 6.2(Bhargav): Compute H_val -- Check sum_check_rounds
-        let mut h_val = pp.partity_check_matrix.val.clone();
-        h_val.resize(h_val.len().next_power_of_two(), F::ZERO);
-        let mut h_erow = compute_oracle_poly(&pp.partity_check_matrix.row, 
+        let mut h_val = pp.parity_check_matrix.val.clone();
+        h_val.resize(basefold_poly_size, F::ZERO);
+        let mut h_erow = compute_oracle_poly(&pp.parity_check_matrix.row, 
             &first_sum_check_random_points);
-        h_erow.resize(h_erow.len().next_power_of_two(), F::ZERO);
-        let mut h_ecol = compute_oracle_poly(&pp.partity_check_matrix.row, 
+        h_erow.resize(basefold_poly_size, F::ZERO);
+        let mut h_ecol = compute_oracle_poly(&pp.parity_check_matrix.row, 
             &u);
-        h_ecol.resize(h_ecol.len().next_power_of_two(), F::ZERO);
+        h_ecol.resize(basefold_poly_size, F::ZERO);
 
         let h_erow_commit = Basefold::<F, H, S>
             ::commit(&pp.basefold, &MultilinearPolynomial::new(h_erow.clone()))
@@ -558,36 +586,124 @@ impl<F, H, S> PolynomialCommitmentScheme<F>
        
         //TODO 8.2: Build 4*2 vectors
         /* polynomials required: hrow, h_erow, hrow_read_ts, hrow_final_ts, hcol, h_ecol, hcol_read_ts, hcol_final_ts */ 
-        //let mut circuit_rs_s = vec![F::ZERO; 2 * row_len];
+        let mut h_row = vec![F::ZERO; basefold_poly_size];
+        let mut h_col = vec![F::ZERO; basefold_poly_size];
+        for i in 0..h_row.len() {
+            h_row[i] = F::try_from(pp.parity_check_matrix.row[i] as u64).unwrap();
+        }
+        for i in 0..h_col.len() {
+            h_col[i] = F::try_from(pp.parity_check_matrix.col[i] as u64).unwrap();
+        }
+
+        let (mut read_ts_row, mut final_ts_row, mut read_ts_col, mut final_ts_col) = get_timestamps
+            (&h_row, &h_col, 2 * pp.brakedown.row_len());
+        final_ts_row.resize(basefold_poly_size, F::ZERO);
+        final_ts_col.resize(basefold_poly_size, F::ZERO);
+        
+        let mut circuit_1 = vec![F::ZERO; 2 * basefold_poly_size];
+        let mut circuit_2 = vec![F::ZERO; 2 * basefold_poly_size];
+        let mut circuit_3 = vec![F::ZERO; 2 * basefold_poly_size];
+        let mut circuit_4 = vec![F::ZERO; 2 * basefold_poly_size];
+
+        // Check range upper bounds with Vineet
+        for i in 0..2*row_len {
+            circuit_1[i] = F::from_u128(i as u128) + 
+                gamma_tau[0] * eq(i, &second_sum_check_random_points);
+        }
+        for i in 0..pp.parity_check_matrix.row.len() {
+            circuit_1[2*row_len + i] = h_row[i] + 
+                gamma_tau[0] * h_erow[i] +
+                gamma_tau[0] * gamma_tau[0] * (read_ts_row[i] + F::ONE);
+        }
+
+        for i in 0..pp.parity_check_matrix.row.len() {
+            circuit_2[2*row_len + i] = h_row[i] + 
+                gamma_tau[0] * h_erow[i] +
+                gamma_tau[0] * gamma_tau[0] * (read_ts_row[i]);
+        }
+        for i in 0..2*row_len {
+            circuit_2[i] = F::from_u128(i as u128) + 
+                gamma_tau[0] * eq(i, &second_sum_check_random_points) +
+                gamma_tau[0] * gamma_tau[0] * final_ts_row[i];
+        }
+
+        for i in 0..2*row_len {
+            circuit_3[i] = F::from_u128(i as u128) + 
+                gamma_tau[0] * eq(i, &u);
+        }
+        for i in 0..pp.parity_check_matrix.col.len() {
+            circuit_3[2*row_len + i] = h_col[i] + 
+                gamma_tau[0] * h_ecol[i] +
+                gamma_tau[0] * gamma_tau[0] * (read_ts_col[i] + F::ONE);
+        }
+
+        for i in 0..pp.parity_check_matrix.col.len() {
+            circuit_4[2*row_len + i] = h_col[i] + 
+                gamma_tau[0] * h_ecol[i] +
+                gamma_tau[0] * gamma_tau[0] * read_ts_col[i];
+        }
+        for i in 0..2*row_len {
+            circuit_4[i] = F::from_u128(i as u128) + 
+                gamma_tau[0] * eq(i, &u) +
+                gamma_tau[0] * gamma_tau[0] * final_ts_col[i];
+        }
         
         //TODO 8.3: Commit to 4 vectors
+        let circuit_11_commit = Basefold::<F, H, S>
+            ::commit(&pp.basefold, &MultilinearPolynomial::new
+                (circuit_1[basefold_poly_size..].to_vec()))
+                .unwrap();
+        let circuit_21_commit = Basefold::<F, H, S>
+            ::commit(&pp.basefold, &MultilinearPolynomial::new
+                (circuit_2[basefold_poly_size..].to_vec()))
+                .unwrap();
+        let circuit_31_commit = Basefold::<F, H, S>
+            ::commit(&pp.basefold, &MultilinearPolynomial::new
+                (circuit_3[basefold_poly_size..].to_vec()))
+                .unwrap();
+        let circuit_41_commit = Basefold::<F, H, S>
+            ::commit(&pp.basefold, &MultilinearPolynomial::new
+                (circuit_2[basefold_poly_size..].to_vec()))
+                .unwrap();
+        transcript.write_commitment(circuit_11_commit.codeword_tree_root());
+        transcript.write_commitment(circuit_21_commit.codeword_tree_root());
+        transcript.write_commitment(circuit_31_commit.codeword_tree_root());
+        transcript.write_commitment(circuit_41_commit.codeword_tree_root());
+
         //TODO 8.4: Send claimed values of 4 grand-product checks
+        transcript.write_field_element(&circuit_1[basefold_poly_size - 2]);
+        transcript.write_field_element(&circuit_2[basefold_poly_size - 2]);
+        transcript.write_field_element(&circuit_3[basefold_poly_size - 2]);
+        transcript.write_field_element(&circuit_4[basefold_poly_size - 2]);
+
         //TODO 8.5: Sample 4 random points
-        let quark_random_combiners = transcript.squeeze_challenges(4);
+        let quarks_random_combiner = transcript.squeeze_challenges(4);
 
         //TODO 8.6: Run 4 sum-checks in parallel for  all 4 circuits with quarks_sum_check_prover. Syntax given below.
         let sum_check_rounds = h_erow.len().ilog2() as usize;
         let mut quarks_sum_check_random_points = vec![F::ZERO; sum_check_rounds];
-//         //quarks_sum_check_prover<F,H, S>(
-//     sum_check_rounds,
-//     mut eq_random,
-//     mut circuit_10,
-//     mut circuit_11,
-//     mut circuit_20,
-//     mut circuit_21,
-//     mut circuit_30,
-//     mut circuit_31,
-//     mut circuit_40,
-//     mut circuit_41,
-//     quarks_random_combiner,
-//     quarks_sum_check_random_points,
-//     transcript
-// )
+        let mut eq_random = Vec::<F>::new();
+        quarks_sum_check_prover::<F, H, S>(
+            sum_check_rounds,
+            eq_random,
+            circuit_1[..basefold_poly_size/2].to_vec(),
+            circuit_1[basefold_poly_size/2..].to_vec(),
+            circuit_2[..basefold_poly_size/2].to_vec(),
+            circuit_2[basefold_poly_size/2..].to_vec(),
+            circuit_3[..basefold_poly_size/2].to_vec(),
+            circuit_3[basefold_poly_size/2..].to_vec(),
+            circuit_4[..basefold_poly_size/2].to_vec(),
+            circuit_4[basefold_poly_size/2..].to_vec(),
+            quarks_random_combiner,
+            &mut quarks_sum_check_random_points,
+            transcript
+        );
         
         //TODO 8.7: Sample an extra random point
+        let r = transcript.squeeze_challenge();
+
         
         //TODO 8.8: Evaluate the polynomials at appropriate points
-
 
 
 
@@ -640,8 +756,6 @@ impl<F, H, S> PolynomialCommitmentScheme<F>
 
         let commitment_to_p = transcript.read_commitment().unwrap();
         let commitment_to_p_prime = transcript.read_commitment().unwrap(); //Just the roots, not BasefoldCommitment objects
-        let a = transcript.read_field_element().unwrap();
-
         // Read all the queried columns and check their Merkle paths
         let depth = codeword_len.next_power_of_two().ilog2() as usize;
         //let sum_check_val = F::ZERO;
@@ -683,8 +797,7 @@ impl<F, H, S> PolynomialCommitmentScheme<F>
         let challenges = transcript.squeeze_challenges(vp.num_brakedown_queries);
         for j in 0..vp.num_brakedown_queries {
             for i in 0..vp.brakedown_row_len {
-                sum_check_val += challenges[j] * x_0[i] * cols[j * vp.brakedown_row_len + j];  // make x_1[i] ?
-                println!("{:?}, {:?}", challenges[i], sum_check_val);
+                sum_check_val += challenges[j] * x_0[i] * cols[j * vp.brakedown_row_len + j];  // make x_1[i] 
             }
         }
         let random_combiners = transcript.squeeze_challenges(2);
@@ -692,6 +805,7 @@ impl<F, H, S> PolynomialCommitmentScheme<F>
         let mut a = transcript.read_field_elements(3).unwrap();
         if sum_check_val != (F::ONE + F::ONE) * a[0] + a[1] + a[2] {
             println!("{:?}, {:?}", sum_check_val, (F::ONE + F::ONE) * a[0] + a[1] + a[2]);
+            println!("HERE");
             return Err(Error::InvalidPcsOpen("Sum check failed".to_string()));
         }
         for _ in 1..(2 * row_len).next_power_of_two().ilog2() as usize {
@@ -718,6 +832,32 @@ impl<F, H, S> PolynomialCommitmentScheme<F>
         Ok(())
     }
 }
+
+pub fn get_timestamps<F: PrimeField>(row: &Vec<F>, col: &Vec<F>, dim: usize,
+                ) -> (Vec<F>, Vec<F>, Vec<F>, Vec<F>) {
+    let length = row.len();
+    let mut read_ts_row = vec![F::ZERO; length];
+    let mut read_ts_col = vec![F::ZERO; length];
+
+    let mut final_ts_row = vec![F::ZERO; dim];
+    let mut final_ts_col = vec![F::ZERO; dim];
+
+    for i in 0..length{
+        let mut bytes = [0; size_of::<u32>()];
+        bytes.copy_from_slice(&row[i].to_repr().as_ref()[..size_of::<u32>()]);
+        let row_idx = u32::from_le_bytes(bytes) as usize;
+        read_ts_row[i] = final_ts_row[row_idx];
+        final_ts_row[row_idx] += F::ONE; 
+
+        bytes.copy_from_slice(&col[i].to_repr().as_ref()[..size_of::<u32>()]);
+        let col_idx = u32::from_le_bytes(bytes) as usize;
+        read_ts_col[i] = final_ts_col[col_idx];
+        final_ts_col[col_idx] += F::ONE; 
+    }
+
+    (read_ts_row, final_ts_row, read_ts_col, final_ts_col)  
+}
+
 
 fn point_to_tensor<F: PrimeField>(num_rows: usize, point: &[F]) -> (Vec<F>, Vec<F>) {
     assert!(num_rows.is_power_of_two());
@@ -1147,7 +1287,7 @@ fn evaluate_poly<F: PrimeField> (coeffs: &Vec<F>, point: &Vec<F>) -> F {
 
 fn partial_evaluate_poly<F: PrimeField> (coeffs: &Vec<F>, point: &Vec<F>, skip: usize) -> F {
     let mut eval = F::ZERO;
-    let tensor_point = point_to_tensor(point.len() - (1 << skip), point).0;
+    let tensor_point = point_to_tensor(1 << (point.len() - skip), point).0;
     for i in 0..tensor_point.len() {
         eval += coeffs[i] * tensor_point[i];
     }
@@ -1158,14 +1298,41 @@ fn compute_oracle_poly<F: PrimeField> (coeffs: &Vec<usize>, point: &Vec<F>) -> V
     let mut oracle_poly = vec![F::ZERO; coeffs.len()];
     for i in 0..coeffs.len() {
         assert!(coeffs[i] < 1 << (point.len() + 1));
-        let mut tmp = coeffs[i];
+        oracle_poly[i] = eq(coeffs[i], point);
+    }
+    oracle_poly
+}
+/*let mut tmp = coeffs[i];
         for j in 1..=point.len() {
             let bit = tmp - ((tmp >> 1) << 1); 
             oracle_poly[i] += F::try_from(bit as u64).unwrap() * point[point.len() - j];
             tmp = tmp >> 1;
-        }
+        }*/
+
+fn eq<F: PrimeField> (mut idx: usize, point: &Vec<F>) -> F {
+    let mut res = F::ZERO;
+    for i in 1..=point.len() {
+        let bit = idx - ((idx >> 1) << 1); 
+        res += F::try_from(bit as u64).unwrap() * point[point.len() - i];
+        idx = idx >> 1;
     }
-    oracle_poly
+    res
+}
+
+fn create_grand_prod_circ<F:PrimeField>(circuit: &mut Vec<F>) {
+    assert!(circuit.len().is_power_of_two());
+    let mut offset_1 = circuit.len()/2;
+    let mut offset_2 = 0;
+    let mut layer_size = circuit.len()/4;
+    while layer_size >= 1 {
+        for i in 0..layer_size {
+            circuit[offset_1 + i] = circuit[offset_2 + 2 * i] 
+                * circuit[offset_2 + 2 * i + 1];
+        }
+        offset_2 = offset_1;
+        offset_1 += layer_size;
+        layer_size /= 2;
+    }
 }
 
 #[cfg(test)]
@@ -1258,7 +1425,7 @@ mod test {
     #[test]
 
     fn test_parity_check_matrix () {
-        let num_vars = 16;
+        let num_vars = 15;
 
         let batch_size = 1;
         let mut rng = ChaCha8Rng::from_entropy();
@@ -1266,6 +1433,9 @@ mod test {
         let params = Pcs::setup(1 << num_vars, batch_size, rng).unwrap();
         let mut parity_check_matrix = vec![vec![Fr::ZERO; params.brakedown_codeword_len - params.brakedown_row_len]; 
             params.brakedown_codeword_len];
+
+        println!("{}, {}, {}", params.partity_check_matrix.row.len(), params.partity_check_matrix.col.len(), 
+        params.partity_check_matrix.val.len());
 
         for i in 0..params.partity_check_matrix.row.len() {
             let row = params.partity_check_matrix.row[i];
@@ -1283,7 +1453,10 @@ mod test {
         //     res[i] = res[i] - msg[params.brakedown_row_len + i];
         // } 
         //println!("{:?}", msg);
-        println!("{:?}", res);
+        println!("{:?}", res.len());
+        for i in 0..res.len() {
+            assert_eq!(Fr::ZERO, res[i]);
+        }
         //println!("{:?}", parity_check_matrix);
     }
 
@@ -1298,7 +1471,7 @@ mod test {
         println!("{}, {}, {}, {}", params.num_vars, params.brakedown_row_len, 
                 params.brakedown_num_rows, params.brakedown_codeword_len);
         println!("{}, {}", params.blow_up_factor, params.basefold.num_vars);
-        //println!("{:?}", params.brakedown);
+        println!("{}", params.trusted_commits.len());
         //println!("{:?}", params.basefold);
     }
 
