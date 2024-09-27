@@ -780,30 +780,30 @@ impl<F, H, S> PolynomialCommitmentScheme<F>
         let mut quarks_sum_check_random_points = vec![F::ZERO; sum_check_rounds];
         let mut eq_random = vec![F::ZERO; circuit_1.len()/2];        // Update this.
 
-        let circuit_10 = circuit_1[..basefold_poly_size/2].to_vec();
-        let circuit_11 = circuit_1[basefold_poly_size/2..].to_vec();
-        let circuit_20 = circuit_2[..basefold_poly_size/2].to_vec();
-        let circuit_21 = circuit_2[basefold_poly_size/2..].to_vec();
-        let circuit_30 = circuit_3[..basefold_poly_size/2].to_vec();
-        let circuit_31 = circuit_3[basefold_poly_size/2..].to_vec();
-        let circuit_40 = circuit_4[..basefold_poly_size/2].to_vec();
-        let circuit_41 = circuit_4[basefold_poly_size/2..].to_vec();
+        let circuit_10 = circuit_1[..basefold_poly_size].to_vec();
+        let circuit_11 = circuit_1[basefold_poly_size..].to_vec();
+        let circuit_20 = circuit_2[..basefold_poly_size].to_vec();
+        let circuit_21 = circuit_2[basefold_poly_size..].to_vec();
+        let circuit_30 = circuit_3[..basefold_poly_size].to_vec();
+        let circuit_31 = circuit_3[basefold_poly_size..].to_vec();
+        let circuit_40 = circuit_4[..basefold_poly_size].to_vec();
+        let circuit_41 = circuit_4[basefold_poly_size..].to_vec();
 
-        // quarks_sum_check_prover::<F, H, S>(
-        //     sum_check_rounds,
-        //     eq_random,
-        //     circuit_10.clone(),
-        //     circuit_11.clone(),
-        //     circuit_20.clone(),
-        //     circuit_21.clone(),
-        //     circuit_30.clone(),
-        //     circuit_31.clone(),
-        //     circuit_40.clone(),
-        //     circuit_41.clone(),
-        //     quarks_random_combiner,
-        //     &mut quarks_sum_check_random_points,
-        //     transcript
-        // );
+        quarks_sum_check_prover::<F, H, S>(
+            sum_check_rounds,
+            eq_random,
+            circuit_10.clone(),
+            circuit_11.clone(),
+            circuit_20.clone(),
+            circuit_21.clone(),
+            circuit_30.clone(),
+            circuit_31.clone(),
+            circuit_40.clone(),
+            circuit_41.clone(),
+            quarks_random_combiner,
+            &mut quarks_sum_check_random_points,
+            transcript
+        );
         // //TODO 8.7: Sample an extra random point
         // let r = transcript.squeeze_challenge();
 
@@ -1041,6 +1041,25 @@ impl<F, H, S> PolynomialCommitmentScheme<F>
         }
         println!("2-ND SUM-CHECK DONE");
         /*END OF SECOND SUM_CHECK VERIFICATION */
+
+        /*QUARKS SUM_CHECK VERIFICATION */
+        let gamma_tau = transcript.squeeze_challenges(2);
+
+        let circuit_11_commit = transcript.read_commitment().unwrap();
+        let circuit_21_commit = transcript.read_commitment().unwrap();
+        let circuit_31_commit = transcript.read_commitment().unwrap();
+        let circuit_41_commit = transcript.read_commitment().unwrap();
+
+
+        //TODO 8.4: Send claimed values of 4 grand-product checks
+        let circuit_1_value = transcript.read_field_element();
+        let circuit_2_value = transcript.read_field_element();
+        let circuit_3_value = transcript.read_field_element();
+        let circuit_4_value = transcript.read_field_element();
+
+        assert_eq!(circuit_1_value, circuit_2_value, "grand_product check not satisfied for rows");
+        assert_eq!(circuit_3_value, circuit_4_value, "grand_product check not satisfied for cols");
+
 
         Ok(())
     }
@@ -1325,6 +1344,7 @@ pub fn quarks_sum_check_prover<F, H, S>(
 )
     where F: PrimeField + Serialize + DeserializeOwned, H: Hash, S: BrakingbaseSpec
 {
+    println!("The lengths of cicruits 0 and 1 are {:?} and {:?}", circuit_10.len(), circuit_11.len());
     let mut circuit_1_even = vec![F::ZERO; circuit_10.len()];
     for i in 0..circuit_10.len() / 2 {
         circuit_1_even[i] = circuit_10[2 * i];
@@ -1517,7 +1537,7 @@ pub fn quarks_sum_check_prover<F, H, S>(
         let r = transcript.squeeze_challenge();
         quarks_sum_check_random_points[i] = r;
 
-        for i in 0..circuit_10.len() / 2 {
+        for i in 0..circuit_11.len() / 2 {
             circuit_11[i] = (F::ONE - r) * circuit_11[i] + r * circuit_11[i + circuit_11.len() / 2];
             circuit_1_even[i] =
                 (F::ONE - r) * circuit_1_even[i] + r * circuit_1_even[i + circuit_1_even.len() / 2];
