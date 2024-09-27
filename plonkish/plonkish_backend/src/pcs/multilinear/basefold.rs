@@ -54,7 +54,7 @@ use std::{borrow::Cow, marker::PhantomData, mem::size_of, slice};
 //Finally, sometimes Type2Polynomial contains coefficients rather than evaluations, in that case it just means that when encoded, it yields evaluations in Type2 order.
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, Eq, PartialEq)]
-struct Type1Polynomial<F: PrimeField> {
+pub struct Type1Polynomial<F: PrimeField> {
     pub poly: Vec<F>,
 }
 
@@ -101,9 +101,9 @@ pub struct BasefoldVerifierParams<F: PrimeField> {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(bound(serialize = "F: Serialize", deserialize = "F: DeserializeOwned"))]
 pub struct BasefoldCommitment<F: PrimeField, H: Hash> {
-    codeword: Type1Polynomial<F>,
-    codeword_tree: Vec<Vec<Output<H>>>,
-    bh_evals: Type1Polynomial<F>,
+    pub codeword: Type1Polynomial<F>,
+    pub codeword_tree: Vec<Vec<Output<H>>>,
+    pub bh_evals: Type1Polynomial<F>,
 }
 
 impl<F: PrimeField, H: Hash> Default for BasefoldCommitment<F, H> {

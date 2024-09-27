@@ -27,6 +27,8 @@ pub struct Brakedown<F> {
     pub (super) b: Vec<SparseMatrix<F>>,
 }
 
+const HABOCK_BOUND: f64 = 13.0;
+
 
 impl<F: PrimeField> Brakedown<F> {
     pub fn proof_size<S: BrakedownSpec>(n_0: usize, c: usize, r: usize) -> usize {
@@ -116,11 +118,11 @@ impl<F: PrimeField> Brakedown<F> {
                 col.push(col_offset + c);
             }
             row_offset += n;
-            for j in 0..self.b[i].dimension.n {
-                val.push(-F::ONE);
-                row.push(row_offset + j);
-                col.push(col_offset + j);
-            }
+            // for j in 0..self.b[i].dimension.n {
+            //     val.push(-F::ONE);
+            //     row.push(row_offset + j);
+            //     col.push(col_offset + j);
+            // }
             col_offset += m;
         }
         let last_n = self.a.last().unwrap().dimension.n;  
@@ -147,11 +149,11 @@ impl<F: PrimeField> Brakedown<F> {
             }
         }
         row_offset += last_n;    // num rows in the parity check matrix of RS code
-        for j in 0..rs_code_len {
-            val.push(-F::ONE);
-            row.push(row_offset + j);
-            col.push(col_offset + j);
-        }
+        // for j in 0..rs_code_len {
+        //     val.push(-F::ONE);
+        //     row.push(row_offset + j);
+        //     col.push(col_offset + j);
+        // }
         col_offset += rs_code_len;    // num cols in the parity check matrix of RS code
 
         for i in (0..self.b.len()).rev() {
@@ -164,11 +166,11 @@ impl<F: PrimeField> Brakedown<F> {
                 row.push(row_offset + j/d);
                 col.push(col_offset + c);
             }
-            for j in 0..m {
-                val.push(-F::ONE);
-                row.push(row_offset + n + j);
-                col.push(col_offset + j);
-            }
+            // for j in 0..m {
+            //     val.push(-F::ONE);
+            //     row.push(row_offset + n + j);
+            //     col.push(col_offset + j);
+            // }
             col_offset += m;
             row_offset -= self.a[i].dimension.n;
         }
@@ -335,13 +337,18 @@ pub trait BrakedownSpec: Debug {
         let alpha = Self::ALPHA;
         let beta = Self::BETA;
         let n = n as f64;
-        min(
-            max(ceil(1.28 * beta * n), ceil(beta * n) + 4),
-            ceil(
-                ((110.0 / n) + h(beta) + alpha * h(1.28 * beta / alpha))
-                    / (beta * (alpha / (1.28 * beta)).log2()),
-            ),
-        )
+        if n >= HABOCK_BOUND { // make HABOCK_BOUND dynamic. Store in code spec
+            8 // make dynamic
+        }
+        else {
+            min(
+                max(ceil(1.28 * beta * n), ceil(beta * n) + 4),
+                ceil(
+                    ((110.0 / n) + h(beta) + alpha * h(1.28 * beta / alpha))
+                        / (beta * (alpha / (1.28 * beta)).log2()),
+                ),
+            )
+        }  
     }
 
     fn d_n(log2_q: usize, n: usize) -> usize {
@@ -352,13 +359,19 @@ pub trait BrakedownSpec: Debug {
         let nu = Self::nu();
         let log2_q = log2_q as f64;
         let n = n as f64;
-        min(
-            ceil((2.0 * beta + ((r - 1.0) + 110.0 / n) / log2_q) * n),
-            ceil(
-                (r * alpha * h(beta / r) + mu * h(nu / mu) + 110.0 / n)
-                    / (alpha * beta * (mu / nu).log2()),
-            ),
-        )
+        if n >= HABOCK_BOUND {
+            13 // make dynamic
+        }
+        else {
+            min(
+                ceil((2.0 * beta + ((r - 1.0) + 110.0 / n) / log2_q) * n),
+                ceil(
+                    (r * alpha * h(beta / r) + mu * h(nu / mu) + 110.0 / n)
+                        / (alpha * beta * (mu / nu).log2()),
+                ),
+            )
+        }
+        
     }
 
     fn num_column_opening() -> usize {
