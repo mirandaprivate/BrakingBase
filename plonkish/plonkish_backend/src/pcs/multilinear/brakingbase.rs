@@ -1311,15 +1311,15 @@ impl<F, H, S> PolynomialCommitmentScheme<F>
             sum_check_val = a[3] + a[2] * r + a[1] * r * r + a[0] * r * r * r;
         }
         let h_val_eval = transcript.read_field_element().unwrap();
-        let h_erow_eval = transcript.read_field_element().unwrap();
-        let h_ecol_eval = transcript.read_field_element().unwrap();
+        let h_erow_eval1 = transcript.read_field_element().unwrap();
+        let h_ecol_eval1 = transcript.read_field_element().unwrap();
 
         // println!(
         //     "Second sum-check random point verifier side is {:?}",
         //     second_sum_check_random_points[second_sum_check_random_points.len() - 1]
         // );
 
-        let final_value = h_val_eval * h_erow_eval * h_ecol_eval;
+        let final_value = h_val_eval * h_erow_eval1 * h_ecol_eval1;
         if sum_check_val != final_value {
             println!("Error in final check of second sum-check");
             return Err(Error::InvalidPcsOpen("Sum check failed".to_string()));
@@ -1417,11 +1417,11 @@ impl<F, H, S> PolynomialCommitmentScheme<F>
        
 
         let h_row_eval = transcript.read_field_element().unwrap();
-        let h_erow_eval = transcript.read_field_element().unwrap();
+        let h_erow_eval2 = transcript.read_field_element().unwrap();
         let read_ts_row_eval = transcript.read_field_element().unwrap();
         let final_ts_row_eval = transcript.read_field_element().unwrap();
         let h_col_eval = transcript.read_field_element().unwrap();
-        let h_ecol_eval = transcript.read_field_element().unwrap();
+        let h_ecol_eval2 = transcript.read_field_element().unwrap();
         let read_ts_col_eval = transcript.read_field_element().unwrap();
         let final_ts_col_eval = transcript.read_field_element().unwrap();
 
@@ -1448,7 +1448,7 @@ impl<F, H, S> PolynomialCommitmentScheme<F>
         let value1 = row_idx_value + gamma_tau[0] * val - gamma_tau[1];
         let value2 =
             h_row_eval +
-            gamma_tau[0] * h_erow_eval +
+            gamma_tau[0] * h_erow_eval2 +
             gamma_tau[0] * gamma_tau[0] * (read_ts_row_eval + F::ONE) -
             gamma_tau[1];
         let circuit10_eval2 =
@@ -1462,7 +1462,7 @@ impl<F, H, S> PolynomialCommitmentScheme<F>
             gamma_tau[1];
         let value1 =
             h_row_eval +
-            gamma_tau[0] * h_erow_eval +
+            gamma_tau[0] * h_erow_eval2 +
             gamma_tau[0] * gamma_tau[0] * read_ts_row_eval -
             gamma_tau[1];
         let circuit20_eval2 =
@@ -1488,7 +1488,7 @@ impl<F, H, S> PolynomialCommitmentScheme<F>
         let value1 = row_idx_value + gamma_tau[0] * val - gamma_tau[1];
         let value2 =
             h_col_eval +
-            gamma_tau[0] * h_ecol_eval +
+            gamma_tau[0] * h_ecol_eval2 +
             gamma_tau[0] * gamma_tau[0] * (read_ts_col_eval + F::ONE) -
             gamma_tau[1];
         let circuit30_eval2 =
@@ -1502,7 +1502,7 @@ impl<F, H, S> PolynomialCommitmentScheme<F>
             gamma_tau[1];
         let value1 =
             h_col_eval +
-            gamma_tau[0] * h_ecol_eval +
+            gamma_tau[0] * h_ecol_eval2 +
             gamma_tau[0] * gamma_tau[0] * read_ts_col_eval -
             gamma_tau[1];
         let circuit40_eval2 =
