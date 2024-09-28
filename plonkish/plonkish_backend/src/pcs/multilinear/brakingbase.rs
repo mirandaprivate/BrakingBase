@@ -229,7 +229,8 @@ impl<F, H, S> PolynomialCommitmentScheme<F>
         let (mut read_ts_row, mut final_ts_row, mut read_ts_col, mut final_ts_col) = get_timestamps(
             &row_col[0..offset],
             &row_col[offset..],
-            2 * brakedown_row_len
+            2 * brakedown_row_len,
+            parity_check_matrix.row.len()
         );
 
         // println!("The read_ts_row.len() is {:?}", read_ts_row.len());
@@ -588,8 +589,10 @@ impl<F, H, S> PolynomialCommitmentScheme<F>
             &first_sum_check_random_points
         );
         h_erow_ecol.resize(basefold_poly_size / 2, h_erow_ecol[0]);
-        h_erow_ecol.extend(compute_oracle_poly(&pp.parity_check_matrix.col, &u));
-        h_erow_ecol.resize(basefold_poly_size, h_erow_ecol[basefold_poly_size / 2]);
+        let mut padded_u = [F::ZERO].to_vec();
+        padded_u.extend(&u);
+        h_erow_ecol.extend(compute_oracle_poly(&pp.parity_check_matrix.col, &padded_u));
+        h_erow_ecol.resize(basefold_poly_size, F::ZERO);
 
         let h_erow_ecol_commit = Basefold::<F, H, S>
             ::commit(&pp.basefold, &MultilinearPolynomial::new(h_erow_ecol.clone()))
@@ -697,6 +700,8 @@ impl<F, H, S> PolynomialCommitmentScheme<F>
 
         let mut final_ts_new = vec![F::ZERO; final_ts_row.len()];
 
+        let mut final_ts_new = vec![F::ZERO; final_ts_row.len()];
+
         // Circuit 1.
         // Memory.
         let mut offset = 0;
@@ -706,10 +711,6 @@ impl<F, H, S> PolynomialCommitmentScheme<F>
                 gamma_tau[0] * eq(i, &first_sum_check_random_points) -
                 gamma_tau[1];
         }
-        // println!("The value of 2*row_len is {:?}", 2*row_len);
-        // println!("The value of first_sum_check_random_points is {:?}", (1 << first_sum_check_random_points.len()));
-        // panic!();
-     
         // Padding memory with zeros.
         for i in 2 * row_len..basefold_poly_size / 2 {
             circuit_1[i] = F::from_u128(i as u128) - gamma_tau[1];
@@ -732,8 +733,8 @@ impl<F, H, S> PolynomialCommitmentScheme<F>
         // Performing dummy reads of the first location in memory.
         for i in pp.parity_check_matrix.row.len()..basefold_poly_size / 2 {
             circuit_1[offset + i] =
-                h_row[0] +
-                gamma_tau[0] * h_erow_ecol[0] +
+                F::ZERO +
+                gamma_tau[0] * eq(0, &first_sum_check_random_points) +
                 gamma_tau[0] * gamma_tau[0] * (read_ts_row[i] + F::ONE) -
                 gamma_tau[1];
             // let mut bytes = [0; size_of::<u32>()];
@@ -741,10 +742,7 @@ impl<F, H, S> PolynomialCommitmentScheme<F>
             // final_ts_new[(u32::from_le_bytes(bytes) as usize)] += F::ONE;
             // println!("Actual: {}, {:?}", i, read_ts_row[i]);
         }
-        println!("pp.parity_check_matrix.row.len() = {:?}", pp.parity_check_matrix.row.len());
-        
-        println!("Basefold poly size / 2 = {:?}", basefold_poly_size/2 );
-       
+        // println!("Basefold poly size / 2 = {}", basefold_poly_size/2 );
 
         // Circuit 2.
         // Performing reads.
@@ -760,7 +758,7 @@ impl<F, H, S> PolynomialCommitmentScheme<F>
         for i in pp.parity_check_matrix.row.len()..basefold_poly_size / 2 {
             circuit_2[i] =
                 h_row[0] +
-                gamma_tau[0] * h_erow_ecol[0] +
+                gamma_tau[0] * eq(0, &first_sum_check_random_points) +
                 gamma_tau[0] * gamma_tau[0] * read_ts_row[i] -
                 gamma_tau[1];
         }
@@ -791,68 +789,90 @@ impl<F, H, S> PolynomialCommitmentScheme<F>
             p1 *= circuit_1[i];
             p2 *= circuit_2[i];
         }
-        println!("The cirucits should output: {:?}, {:?}", p1, p2);
+        // println!("The cirucits should output: {:?}, {:?}", p1, p2);
 
         // Circuit 3.
-        // Memory
+        // Memory.
         let mut offset = 0;
-        for i in 0..row_len {
-            circuit_3[i] = F::from_u128(i as u128) + gamma_tau[0] * eq(i, &u) - gamma_tau[1];
+        for i in 0..2 * row_len {
+            circuit_3[i] =
+                F::from_u128(i as u128) +
+                gamma_tau[0] * eq(i, &padded_u) -
+                gamma_tau[1];
         }
         // Padding memory with zeros.
-        for i in row_len..basefold_poly_size / 2 {
+        for i in 2 * row_len..basefold_poly_size / 2 {
             circuit_3[i] = F::from_u128(i as u128) - gamma_tau[1];
         }
         // Performing reads.
         offset += basefold_poly_size / 2;
-        for i in 0..pp.parity_check_matrix.col.len() {
+        for i in 0..pp.parity_check_matrix.row.len() {
             circuit_3[offset + i] =
                 h_col[i] +
-                gamma_tau[0] * h_erow_ecol[basefold_poly_size / 2 + i] +
+                gamma_tau[0] * h_erow_ecol[basefold_poly_size/2 + i] +
                 gamma_tau[0] * gamma_tau[0] * (read_ts_col[i] + F::ONE) -
                 gamma_tau[1];
+            let mut bytes = [0; size_of::<u64>()];
+            bytes.copy_from_slice(&h_col[i].to_repr().as_ref()[..size_of::<u64>()]);
+            final_ts_new[(u64::from_le_bytes(bytes) as usize)] += F::ONE;
+            /*if i > pp.parity_check_matrix.row.len() - 32 {
+                println!("Actual: {}, {:?}, {:?}", i, read_ts_col[i], final_ts_new[(u64::from_le_bytes(bytes) as usize)]);
+            }*/
         }
         // Performing dummy reads of the first location in memory.
-        for i in pp.parity_check_matrix.col.len()..basefold_poly_size / 2 {
+        for i in pp.parity_check_matrix.row.len()..basefold_poly_size / 2 {
             circuit_3[offset + i] =
-                h_col[0] +
-                gamma_tau[0] * h_erow_ecol[offset] +
+                F::ZERO +
+                gamma_tau[0] * eq(0, &padded_u) +
                 gamma_tau[0] * gamma_tau[0] * (read_ts_col[i] + F::ONE) -
                 gamma_tau[1];
+            let mut bytes = [0; size_of::<u64>()];
+            bytes.copy_from_slice(&F::ZERO.to_repr().as_ref()[..size_of::<u64>()]);
+            final_ts_new[(u64::from_le_bytes(bytes) as usize)] += F::ONE;
+            // if i > basefold_poly_size / 2 - 32 {
+            //     println!("Actual: {}, {:?}, {:?}", i, read_ts_col[i], final_ts_new[(u64::from_le_bytes(bytes) as usize)]);
+            // }     
         }
+        // println!("Basefold poly size / 2 = {}", basefold_poly_size/2 );
 
         // Circuit 4.
         // Performing reads.
         let mut offset = 0;
-        for i in 0..pp.parity_check_matrix.col.len() {
+        for i in 0..pp.parity_check_matrix.row.len() {
             circuit_4[i] =
                 h_col[i] +
-                gamma_tau[0] * h_erow_ecol[basefold_poly_size / 2 + i] +
+                gamma_tau[0] * h_erow_ecol[basefold_poly_size/2 + i] +
                 gamma_tau[0] * gamma_tau[0] * read_ts_col[i] -
                 gamma_tau[1];
         }
         // Performing dummy reads.
-        for i in pp.parity_check_matrix.col.len()..basefold_poly_size / 2 {
+        for i in pp.parity_check_matrix.row.len()..basefold_poly_size / 2 {
             circuit_4[i] =
-                h_col[0] +
-                gamma_tau[0] * h_erow_ecol[basefold_poly_size / 2] +
+                F::ZERO +
+                gamma_tau[0] * eq(0, &padded_u) + // h_erow_ecol[basefold_poly_size/2] +
                 gamma_tau[0] * gamma_tau[0] * read_ts_col[i] -
                 gamma_tau[1];
         }
         offset += basefold_poly_size / 2;
         // Final memory.
-        for i in 0..row_len {
+        for i in 0..2 * row_len {
             circuit_4[offset + i] =
                 F::from_u128(i as u128) +
-                gamma_tau[0] * eq(i, &u) +
+                gamma_tau[0] * eq(i, &padded_u)  +
                 gamma_tau[0] * gamma_tau[0] * final_ts_col[i] -
                 gamma_tau[1];
         }
         // Padding final memory with zeros.
-        for i in row_len..basefold_poly_size / 2 {
+        for i in 2 * row_len..basefold_poly_size / 2 {
             circuit_4[offset + i] = F::from_u128(i as u128) - gamma_tau[1];
         }
 
+        for i in 0..final_ts_new.len() {
+            if final_ts_new[i] != final_ts_col[i] {
+                println!("Bad index: {}", i);
+                println!("{:?}, {:?}", final_ts_new[i], final_ts_col[i]);
+            }
+        }
         // Test code.
         let mut p1 = F::ONE;
         let mut p2 = F::ONE;
@@ -860,22 +880,22 @@ impl<F, H, S> PolynomialCommitmentScheme<F>
             p1 *= circuit_3[i];
             p2 *= circuit_4[i];
         }
-        println!("The cirucits should output: {:?}, {:?}", p1, p2);
+        // println!("The cirucits should output: {:?}, {:?}", p1, p2);
 
         create_grand_prod_circ(&mut circuit_1);
         create_grand_prod_circ(&mut circuit_2);
         create_grand_prod_circ(&mut circuit_3);
         create_grand_prod_circ(&mut circuit_4);
-        println!(
-            "But they output: {:?}, {:?}",
-            circuit_1[2 * basefold_poly_size - 2],
-            circuit_2[2 * basefold_poly_size - 2]
-        );
-        println!(
-            "But they output: {:?}, {:?}",
-            circuit_3[2 * basefold_poly_size - 2],
-            circuit_4[2 * basefold_poly_size - 2]
-        );
+        // println!(
+        //     "But they output: {:?}, {:?}",
+        //     circuit_1[2 * basefold_poly_size - 2],
+        //     circuit_2[2 * basefold_poly_size - 2]
+        // );
+        // println!(
+        //     "But they output: {:?}, {:?}",
+        //     circuit_3[2 * basefold_poly_size - 2],
+        //     circuit_4[2 * basefold_poly_size - 2]
+        // );
 
         //TODO 8.3: Commit to 4 vectors
         let circuit_11_commit = Basefold::<F, H, S>
@@ -1495,48 +1515,47 @@ impl<F, H, S> PolynomialCommitmentScheme<F>
 pub fn get_timestamps<F: PrimeField>(
     row: &[F],
     col: &[F],
-    memory_size: usize
+    memory_size: usize, 
+    actual_reads: usize
 ) -> (Vec<F>, Vec<F>, Vec<F>, Vec<F>) {
     let num_reads = row.len();
-    let num_reads_next_power_two = num_reads.next_power_of_two();
     println!("Num reads = {}", num_reads);
-    let mut read_ts_row = vec![F::ZERO; num_reads_next_power_two];
-    let mut read_ts_col = vec![F::ZERO; num_reads_next_power_two];
+    let mut read_ts_row = vec![F::ZERO; num_reads];
+    let mut read_ts_col = vec![F::ZERO; num_reads];
 
     let mut final_ts_row = vec![F::ZERO; memory_size];
     let mut final_ts_col = vec![F::ZERO; memory_size];
 
-    for i in 0..num_reads {
+    for i in 0..actual_reads {
         let mut bytes = [0; size_of::<u32>()];
         bytes.copy_from_slice(&row[i].to_repr().as_ref()[..size_of::<u32>()]);
         let row_idx = u32::from_le_bytes(bytes) as usize;
         read_ts_row[i] = final_ts_row[row_idx];
-        // if i < 8 {
-        //     println!("{}, {:?}, {:?}", i, read_ts_row[i], final_ts_row[row_idx]);
-        // }
         final_ts_row[row_idx] += F::ONE;
 
+        let mut bytes = [0; size_of::<u32>()];
         bytes.copy_from_slice(&col[i].to_repr().as_ref()[..size_of::<u32>()]);
         let col_idx = u32::from_le_bytes(bytes) as usize;
         read_ts_col[i] = final_ts_col[col_idx];
         final_ts_col[col_idx] += F::ONE;
+        // if i > num_reads - 32 {
+        //     println!("{}, {:?}, {:?}", i, read_ts_col[i], final_ts_col[col_idx]);
+        // }
     }
 
-   
-    for i in num_reads..num_reads_next_power_two{
-        let mut bytes = [0; size_of::<u32>()];
-        bytes.copy_from_slice(&row[0].to_repr().as_ref()[..size_of::<u32>()]);
-        let row_idx = u32::from_le_bytes(bytes) as usize;
-        read_ts_row[i] = final_ts_row[row_idx];
-        final_ts_row[row_idx] += F::ONE;
-        
-        bytes.copy_from_slice(&col[0].to_repr().as_ref()[..size_of::<u32>()]);
-        let col_idx = u32::from_le_bytes(bytes) as usize;
-        read_ts_col[i] = final_ts_col[col_idx];
-        final_ts_col[col_idx] += F::ONE;
+    // Handling dummy reads
+    for i in actual_reads..num_reads {
+        read_ts_row[i] = final_ts_row[0];
+        final_ts_row[0] += F::ONE;
+
+        read_ts_col[i] = final_ts_col[0];
+        final_ts_col[0] += F::ONE;
+        // if i > num_reads - 32 {
+        //     println!("{}, {:?}, {:?}", i, read_ts_col[i], final_ts_col[col_idx]);
+        // }
     }
 
-    println!("TS = {:?}", final_ts_row[0..4].to_vec());
+    // println!("TS = {:?}", final_ts_row[0..4].to_vec());
     (read_ts_row, final_ts_row, read_ts_col, final_ts_col)
 }
 
