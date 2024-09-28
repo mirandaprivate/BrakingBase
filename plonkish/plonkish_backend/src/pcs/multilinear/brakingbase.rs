@@ -490,7 +490,9 @@ impl<F, H, S> PolynomialCommitmentScheme<F>
         h.resize(2 * row_len, F::ZERO);
         let h_clone = h.clone();
         let small_p_p_prime = p_p_prime[0..2 * row_len].to_vec();
-        transcript.write_field_element(&evaluate_poly(&small_p_p_prime[row_len..].to_vec(), &u));
+
+        let p_prime_eval_u = &evaluate_poly(&small_p_p_prime[row_len..].to_vec(), &u);
+        transcript.write_field_element(&p_prime_eval_u);
 
         let mut mask = vec![F::ZERO; 2 * row_len];
         let challenges = transcript.squeeze_challenges(pp.num_brakedown_queries);
@@ -1122,25 +1124,33 @@ impl<F, H, S> PolynomialCommitmentScheme<F>
         //TODO 9: Batch Evaluate
         //TODO 9.1 List of batch evaluations: 
         // a) p_eval, p_prime_eval, h_erow_eval1, h_ecol_eval1, h_val_eval,
-        // b)  h_row_eval, h_erow_eval2, read_ts_row_eval, final_ts_row_eval
+        // b)  h_row_eval, h_erow_eval2, read_ts_row_eval, final_ts_row_eval 
         // c) h_col_eval, h_ecol_eval2, read_ts_col_eval, final_ts_col_eval
         // c) circuit11_eval1, circuit21_eval1, circuit31_eval1, circuit41_eval1, 
         // d) circuit11_eval2, circuit21_eval2, circuit31_eval2, circuit41_eval2
 
         //TODO 9.2 Combine p_eval and p_prime_eval, h_erow_eval and h_ecol_eval
+        let r = transcript.squeeze_challenge();
+        let mut point_p_p_prime_eval1 = vec![F::ZERO; circuit_eval_point.len() -1 - first_sum_check_random_points.len()];
+        point_p_p_prime_eval1.push(r);
+        point_p_p_prime_eval1.append(&mut first_sum_check_random_points);
+        let p_p_prime_eval_1 = (F::ONE - r) * p_eval + r* p_prime_eval;
 
+        let mut point_p_p_prime_eval2 = vec![F::ZERO; circuit_eval_point.len() -1 - first_sum_check_random_points.len()];
+        point_p_p_prime_eval2.push(F::ONE);
+        point_p_p_prime_eval2.append(&mut u);
+
+        let mut point_h_erow_ecol_eval1 = vec![r];
+        point_h_erow_ecol_eval1.append(&mut second_sum_check_random_points);
+        let h_erow_ecol_eval1 = (F::ONE - r) * h_erow_eval1 + r * h_ecol_eval1;
+
+        let mut point_h_erow_ecol_eval2 = vec![r];
+        point_h_erow_ecol_eval2.append(&mut circuit_eval_point[1..].to_vec()); //Same for h_val_eval, and h_row_col_eval
+        let h_erow_ecol_eval1 = (F::ONE - r) * h_erow_eval2 + r * h_ecol_eval2;
+
+        let h_row_col_eval = (F::ONE - r) * h_row_eval + r * h_col_eval;
+       
         
-        let p_eval = partial_evaluate_poly(
-            &p_p_prime[0..row_len].to_vec(),
-            &first_sum_check_random_points,
-            1
-        ); // Suboptimal as to_vec() copies
-
-        let p_prime_eval = partial_evaluate_poly(
-            &p_p_prime[row_len..2 * row_len].to_vec(),
-            &first_sum_check_random_points,
-            1
-        ); // Suboptimal as to_vec() copies
 
         Ok(())
     }
