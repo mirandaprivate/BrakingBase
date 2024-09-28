@@ -231,12 +231,19 @@ impl<F, H, S> PolynomialCommitmentScheme<F>
             &row_col[offset..],
             2 * brakedown_row_len
         );
-        read_ts_row.resize(basefold_poly_size / 2, F::ZERO);
-        read_ts_col.resize(basefold_poly_size / 2, F::ZERO);
+
+        // println!("The read_ts_row.len() is {:?}", read_ts_row.len());
+        // println!("basefold_poly_size / 2 is {:?}", basefold_poly_size / 2);  
+        // panic!();
+
+        // read_ts_row.resize(basefold_poly_size / 2, F::ZERO);
+        // read_ts_col.resize(basefold_poly_size / 2, F::ZERO);
         final_ts_row.resize(basefold_poly_size / 2, F::ZERO);
         final_ts_col.resize(basefold_poly_size / 2, F::ZERO);
         read_ts_row.extend(final_ts_row);
         read_ts_col.extend(final_ts_col);
+
+        
 
         let mut trusted_commits = Vec::<BasefoldCommitment<F, H>>::new();
         reverse_index_bits_in_place(&mut val); // Basefold commit accepts type 2 poly. Converts type 1 (our rep) to type 2.
@@ -568,15 +575,21 @@ impl<F, H, S> PolynomialCommitmentScheme<F>
 
         //TODO 6.1: Commit to H_erow, H_ecol using Basefold
         //TODO 6.2(Bhargav): Compute H_val -- Check sum_check_rounds
+
+        //TODO: Q Why are we doubling h_val. This can be basefold_size/2 right?
         let mut h_val = pp.parity_check_matrix.val.clone();
+        println!("The size of h_val length before appending is {:?}", h_val.len());
         h_val.resize(basefold_poly_size, F::ZERO);
+        println!("The size of h_val length after appending is {:?}", h_val.len());
+       
+
         let mut h_erow_ecol = compute_oracle_poly(
             &pp.parity_check_matrix.row,
             &first_sum_check_random_points
         );
-        h_erow_ecol.resize(basefold_poly_size / 2, F::ZERO);
+        h_erow_ecol.resize(basefold_poly_size / 2, h_erow_ecol[0]);
         h_erow_ecol.extend(compute_oracle_poly(&pp.parity_check_matrix.col, &u));
-        h_erow_ecol.resize(basefold_poly_size, F::ZERO);
+        h_erow_ecol.resize(basefold_poly_size, h_erow_ecol[basefold_poly_size / 2]);
 
         let h_erow_ecol_commit = Basefold::<F, H, S>
             ::commit(&pp.basefold, &MultilinearPolynomial::new(h_erow_ecol.clone()))
@@ -657,6 +670,9 @@ impl<F, H, S> PolynomialCommitmentScheme<F>
         for i in 0..pp.parity_check_matrix.col.len() {
             h_col[i] = F::try_from(pp.parity_check_matrix.col[i] as u64).unwrap();
         }
+        h_row.resize(h_row.len().next_power_of_two(), h_row[0]);
+        h_col.resize(h_col.len().next_power_of_two(), h_col[0]);
+
 
         let mut read_ts_row: Vec<F> =
             pp.trusted_commits[2].bh_evals.poly[0..basefold_poly_size / 2].to_vec();
@@ -690,6 +706,10 @@ impl<F, H, S> PolynomialCommitmentScheme<F>
                 gamma_tau[0] * eq(i, &first_sum_check_random_points) -
                 gamma_tau[1];
         }
+        // println!("The value of 2*row_len is {:?}", 2*row_len);
+        // println!("The value of first_sum_check_random_points is {:?}", (1 << first_sum_check_random_points.len()));
+        // panic!();
+     
         // Padding memory with zeros.
         for i in 2 * row_len..basefold_poly_size / 2 {
             circuit_1[i] = F::from_u128(i as u128) - gamma_tau[1];
@@ -721,7 +741,10 @@ impl<F, H, S> PolynomialCommitmentScheme<F>
             // final_ts_new[(u32::from_le_bytes(bytes) as usize)] += F::ONE;
             // println!("Actual: {}, {:?}", i, read_ts_row[i]);
         }
-        // println!("Basefold poly size / 2 = {}", basefold_poly_size/2 );
+        println!("pp.parity_check_matrix.row.len() = {:?}", pp.parity_check_matrix.row.len());
+        
+        println!("Basefold poly size / 2 = {:?}", basefold_poly_size/2 );
+       
 
         // Circuit 2.
         // Performing reads.
@@ -1040,7 +1063,32 @@ impl<F, H, S> PolynomialCommitmentScheme<F>
 
         //Need to change this:
         //For Circuit 10, we have to send evaluation: a) h_row, h_erow, (h_read_ts+1), b) idx, val,
+        let h_row_eval = evaluate_poly(&h_row, &circuit_eval_point[1..].to_vec());
+        let h_erow_eval = evaluate_poly(&h_erow_ecol[0..basefold_poly_size/2].to_vec(), &circuit_eval_point[1..].to_vec());
+        let read_ts_row_eval = evaluate_poly(&read_ts_row, &circuit_eval_point[1..].to_vec());
 
+        let circuit10_eval = evaluate_poly(&circuit_10, &circuit_eval_point);
+
+        let mut row_idx_value = F::ZERO;
+        for i in 0..circuit_eval_point.len()-1{
+            row_idx_value += F::from_u128(1<<i) * circuit_eval_point[circuit_eval_point.len()-1 -i];
+        }
+        let mut extend_first_sum_check_random_points = vec![F::ZERO;circuit_eval_point.len()-1];
+        let extend_length = circuit_eval_point.len() -1 - first_sum_check_random_points.len();
+        for i in 0..circuit_eval_point.len()-1{
+            if i >=  extend_length{
+                extend_first_sum_check_random_points[i] = first_sum_check_random_points[i - extend_length];
+            }
+        }
+        let val = eq_eval_random(&extend_first_sum_check_random_points, &circuit_eval_point[1..].to_vec());
+        
+        let test_value1 = row_idx_value + gamma_tau[0] * val - gamma_tau[1];
+        let test_value2 = h_row_eval + gamma_tau[0] * h_erow_eval + gamma_tau[0] * gamma_tau[0] * (read_ts_row_eval + F::ONE) - gamma_tau[1];
+        let test_value = (F::ONE - circuit_eval_point[0]) * test_value1 + circuit_eval_point[0] * test_value2;
+
+        assert_eq!(circuit10_eval, test_value, "Circuit test values not matching");
+       // panic!();
+        //let test_value = 
         
         transcript.write_field_element(
             &evaluate_poly(&circuit_10, &circuit_eval_point)
@@ -1450,9 +1498,10 @@ pub fn get_timestamps<F: PrimeField>(
     memory_size: usize
 ) -> (Vec<F>, Vec<F>, Vec<F>, Vec<F>) {
     let num_reads = row.len();
+    let num_reads_next_power_two = num_reads.next_power_of_two();
     println!("Num reads = {}", num_reads);
-    let mut read_ts_row = vec![F::ZERO; num_reads];
-    let mut read_ts_col = vec![F::ZERO; num_reads];
+    let mut read_ts_row = vec![F::ZERO; num_reads_next_power_two];
+    let mut read_ts_col = vec![F::ZERO; num_reads_next_power_two];
 
     let mut final_ts_row = vec![F::ZERO; memory_size];
     let mut final_ts_col = vec![F::ZERO; memory_size];
@@ -1473,6 +1522,20 @@ pub fn get_timestamps<F: PrimeField>(
         final_ts_col[col_idx] += F::ONE;
     }
 
+   
+    for i in num_reads..num_reads_next_power_two{
+        let mut bytes = [0; size_of::<u32>()];
+        bytes.copy_from_slice(&row[0].to_repr().as_ref()[..size_of::<u32>()]);
+        let row_idx = u32::from_le_bytes(bytes) as usize;
+        read_ts_row[i] = final_ts_row[row_idx];
+        final_ts_row[row_idx] += F::ONE;
+        
+        bytes.copy_from_slice(&col[0].to_repr().as_ref()[..size_of::<u32>()]);
+        let col_idx = u32::from_le_bytes(bytes) as usize;
+        read_ts_col[i] = final_ts_col[col_idx];
+        final_ts_col[col_idx] += F::ONE;
+    }
+
     println!("TS = {:?}", final_ts_row[0..4].to_vec());
     (read_ts_row, final_ts_row, read_ts_col, final_ts_col)
 }
@@ -1483,6 +1546,19 @@ fn point_to_tensor<F: PrimeField>(num_rows: usize, point: &[F]) -> (Vec<F>, Vec<
     let t_0 = eq_xy(lo); // switch t_0 and t_1
     let t_1 = eq_xy(hi);
     (t_0, t_1)
+}
+
+fn eq_eval_random<F: PrimeField>(random_point1: &[F], random_point2:&[F]) -> F{
+    //compute eq_random
+    assert_eq!(random_point1.len(), random_point2.len(), "The lengths of the  random points are not equal!");
+    let mut eq_random_value = F::ONE;
+    for i in 0..random_point1.len() {
+        eq_random_value *=
+            (F::ONE - random_point1[i]) *
+                (F::ONE - random_point2[i]) +
+                random_point1[i] * random_point2[i];
+    }
+    eq_random_value
 }
 
 fn eq_xy<F: PrimeField>(y: &[F]) -> Vec<F> {
