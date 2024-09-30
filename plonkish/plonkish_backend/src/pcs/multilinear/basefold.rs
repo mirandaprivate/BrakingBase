@@ -1885,7 +1885,7 @@ mod test {
 
     impl BasefoldExtParams for Five {
         fn get_reps() -> usize {
-            return 33;
+            return 250;
         }
 
         fn get_rate() -> usize {

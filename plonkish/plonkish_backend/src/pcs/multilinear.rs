@@ -284,8 +284,8 @@ mod additive {
 #[cfg(test)]
 mod test {
     use crate::{
-        pcs::{Evaluation, PolynomialCommitmentScheme},
-        poly::multilinear::MultilinearPolynomial,
+        pcs::{multilinear::brakingbase::evaluate_poly, Evaluation, PolynomialCommitmentScheme},
+        poly::{multilinear::MultilinearPolynomial, Polynomial},
         util::{
             arithmetic::PrimeField,
             chain,
@@ -305,6 +305,7 @@ mod test {
         use crate::{
             pcs::multilinear::{
                 basefold::Basefold,
+                brakingbase::evaluate_poly,
                 test::{run_batch_commit_open_verify, run_commit_open_verify},
             },
             util::{
@@ -357,7 +358,7 @@ mod test {
             + TranscriptWrite<Pcs::CommitmentChunk, F>
             + InMemoryTranscript<Param = ()>,
     {
-        for num_vars in 21..24 {
+        for num_vars in 13..21 {
             println!("k {:?}", num_vars);
             // Setup
             let (pp, vp) = {
@@ -377,7 +378,8 @@ mod test {
                 let comm = Pcs::commit_and_write(&pp, &poly, &mut transcript).unwrap();
                 println!("comm time {:?}", now.elapsed());
                 let point = transcript.squeeze_challenges(num_vars);
-                let eval = poly.evaluate(point.as_slice());
+                // let eval = poly.evaluate(point.as_slice());
+                let eval = evaluate_poly(&poly.evals().to_vec(), &point);
                 transcript.write_field_element(&eval).unwrap();
                 let now2 = Instant::now();
                 Pcs::open(&pp, &poly, &comm, &point, &eval, &mut transcript).unwrap();
@@ -386,6 +388,7 @@ mod test {
                 transcript.into_proof()
             };
             // Verify
+            println!("Proof size = {} bytes", proof.len());
             let result = {
                 let mut transcript = T::from_proof((), proof.as_slice());
                 Pcs::verify(

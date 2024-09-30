@@ -438,7 +438,7 @@ where
         let codeword_len = pp.brakedown.codeword_len();
         let row_len = pp.brakedown.row_len();
         let basefold_poly_size = pp.basefold_poly_size;
-        let (x_0, x_1) = point_to_tensor(num_rows, point);
+        let (mut x_0, mut x_1) = point_to_tensor_for_commit(num_rows, point);
         let mut combined_codeword = vec![F::ZERO; codeword_len];
 
         // Taking a linear combination of the rows of the commitment matrix
@@ -449,6 +449,12 @@ where
                 //combined_codeword[j] += x_1[i] * comm.rows[codeword_len * i + j];
             }
         }
+
+        // let mut temp = F::ZERO;
+        // for j in 0..row_len {
+        //     temp += combined_codeword[j] * x_1[j];
+        // }
+        // println!("Computed eval = {:?}, passed eval ={:?}", temp, eval);
 
         // Commiting to the message and (codeword - message) parts of combined_codeword
         let mut p_p_prime: Vec<F> = Vec::new();
@@ -1190,6 +1196,33 @@ where
         point_p_p_prime_eval2.push(F::ONE);
         point_p_p_prime_eval2.append(&mut u);
 
+        let mut point_p_p_prime_eval3 =
+            vec![F::ZERO; circuit_eval_point.len() - 1 - x_1.len().ilog2() as usize];
+        // println!(
+        //     "The length of circuit_eval_point and x_1.ilog is {}, {}",
+        //     circuit_eval_point.len(),
+        //     x_1.len().ilog2()
+        // );
+        point_p_p_prime_eval3.push(F::ZERO);
+        let mut point_clone = point.to_vec();
+        point_p_p_prime_eval3.append(&mut point_clone[(x_0.len().ilog2() as usize)..].to_vec());
+        // println!(
+        //     "Lens = {} {}",
+        //     point_p_p_prime_eval2.len(),
+        //     point_p_p_prime_eval3.len()
+        // );
+        // println!(
+        //     "Lens = {} {}, num_vars = {}",
+        //     x_0.len(),
+        //     x_1.len(),
+        //     pp.num_vars
+        // );
+
+        // println!(
+        //     "Points = {:?}, {:?}",
+        //     point_p_p_prime_eval2, point_p_p_prime_eval3
+        // );
+
         //Need to sample an extra random point to combine values here
         let r = transcript.squeeze_challenge(); //The length of second_sum_check_random_points is one less than circuit_eval_point.len()
         let mut point_h_erow_ecol_eval1 = vec![r];
@@ -1251,11 +1284,12 @@ where
         let mut batch_sum_check_random_points = vec![F::ZERO; circuit_eval_point.len()];
 
         //16 evaluations to be batched in total
-        let batch_sum_check_random_combiner = transcript.squeeze_challenges(16);
+        let batch_sum_check_random_combiner = transcript.squeeze_challenges(17);
 
         //Build eq_vector corresponding to each point (5 in total)
         let mut eq_p_prime_eval1 = point_to_tensor(1, &point_p_p_prime_eval1).1;
         let mut eq_p_prime_eval2 = point_to_tensor(1, &point_p_p_prime_eval2).1;
+        let mut eq_p_prime_eval3 = point_to_tensor(1, &point_p_p_prime_eval3).1;
         let mut eq_h_erow_ecol_eval1 = point_to_tensor(1, &point_h_erow_ecol_eval1).1;
         let mut eq_circuit_eval_point = point_to_tensor(1, &circuit_eval_point).1;
         let mut eq_quarks_sum_check = point_to_tensor(1, &quarks_sum_check_random_points).1;
@@ -1266,6 +1300,7 @@ where
             sum_check_rounds,
             eq_p_prime_eval1,
             eq_p_prime_eval2,
+            eq_p_prime_eval3,
             eq_h_erow_ecol_eval1,
             eq_circuit_eval_point,
             eq_quarks_sum_check,
@@ -1497,7 +1532,7 @@ where
         let codeword_len = vp.brakedown_codeword_len;
         let row_len = vp.brakedown_row_len;
 
-        let (x_0, x_1) = point_to_tensor(num_rows, point);
+        let (mut x_0, mut x_1) = point_to_tensor_for_commit(num_rows, point);
         //let mut combined_codeword = vec![F::ZERO; codeword_len];
 
         let p_p_prime_commit = transcript.read_commitment().unwrap();
@@ -1874,6 +1909,15 @@ where
 
         point_p_p_prime_eval2.push(F::ONE);
         point_p_p_prime_eval2.append(&mut u);
+
+        let mut point_p_p_prime_eval3 =
+            vec![F::ZERO; circuit_eval_point.len() - 1 - x_1.len().ilog2() as usize];
+
+        // println!("The length of u verfier is {:?}", u.len());
+
+        point_p_p_prime_eval3.push(F::ZERO);
+        let mut point_clone = point.to_vec();
+        point_p_p_prime_eval3.append(&mut point_clone[(x_0.len().ilog2() as usize)..].to_vec());
         // println!(
         //     "The length of fpoint_p_p_prime_eval1 and point_p_p_prime_eval2 are {:?}, {:?}",
         //     point_p_p_prime_eval1.len(),
@@ -1908,10 +1952,11 @@ where
         let mut batch_sum_check_random_points = vec![F::ZERO; sum_check_rounds];
 
         //15 evaluations to be batched in total
-        let batch_sum_check_random_combiner = transcript.squeeze_challenges(16);
+        let batch_sum_check_random_combiner = transcript.squeeze_challenges(17);
 
         let mut sum_check_val = batch_sum_check_random_combiner[0] * p_p_prime_eval_1
-            + batch_sum_check_random_combiner[1] * p_prime_at_u;
+            + batch_sum_check_random_combiner[1] * p_prime_at_u
+            + batch_sum_check_random_combiner[16] * eval;
 
         sum_check_val += batch_sum_check_random_combiner[2] * h_erow_ecol_eval1
             + batch_sum_check_random_combiner[3] * h_erow_ecol_eval2;
@@ -1965,6 +2010,8 @@ where
             eq_eval_random(&point_p_p_prime_eval1, &batch_sum_check_random_points);
         let eq_p_prime_eval2 =
             eq_eval_random(&point_p_p_prime_eval2, &batch_sum_check_random_points);
+        let eq_p_prime_eval3 =
+            eq_eval_random(&point_p_p_prime_eval3, &batch_sum_check_random_points);
         let eq_h_erow_ecol_eval1 =
             eq_eval_random(&point_h_erow_ecol_eval1, &batch_sum_check_random_points);
         let eq_circuit_eval = eq_eval_random(&circuit_eval_point, &batch_sum_check_random_points);
@@ -1986,7 +2033,8 @@ where
         // j) h_row_col at (circuit_eval_point, h_row_col_eval)
 
         let mut final_check_val = (batch_sum_check_random_combiner[0] * eq_p_prime_eval1
-            + batch_sum_check_random_combiner[1] * eq_p_prime_eval2)
+            + batch_sum_check_random_combiner[1] * eq_p_prime_eval2
+            + batch_sum_check_random_combiner[16] * eq_p_prime_eval3)
             * p_p_prime_batch_eval;
 
         final_check_val += (batch_sum_check_random_combiner[2] * eq_h_erow_ecol_eval1
@@ -2150,6 +2198,14 @@ fn point_to_tensor<F: PrimeField>(num_rows: usize, point: &[F]) -> (Vec<F>, Vec<
     let t_0 = eq_xy(lo); // switch t_0 and t_1
     let t_1 = eq_xy(hi);
     (t_0, t_1)
+}
+
+fn point_to_tensor_for_commit<F: PrimeField>(num_rows: usize, point: &[F]) -> (Vec<F>, Vec<F>) {
+    assert!(num_rows.is_power_of_two());
+    let (hi, lo) = point.split_at((num_rows.ilog2() as usize));
+    let x_0 = eq_xy(hi);
+    let x_1 = eq_xy(lo);
+    (x_0, x_1)
 }
 
 fn eq_eval_random<F: PrimeField>(random_point1: &[F], random_point2: &[F]) -> F {
@@ -2601,6 +2657,7 @@ pub fn batch_evaluate_sum_check<F, H, S>(
     sum_check_rounds: usize,
     mut eq_p_prime_eval1: Vec<F>,
     mut eq_p_prime_eval2: Vec<F>,
+    mut eq_p_prime_eval3: Vec<F>,
     mut eq_h_erow_ecol_eval1: Vec<F>,
     mut eq_circuit_eval_point: Vec<F>,
     mut eq_quarks_sum_check: Vec<F>,
@@ -2646,23 +2703,29 @@ pub fn batch_evaluate_sum_check<F, H, S>(
         // println!("The length of mask is {:?}", mask.len());
         for iter in 0..eq_p_prime_eval1.len() / 2 {
             value_at_0 += (eq_p_prime_eval1[iter] * batch_sum_check_random_combiner[0]
-                + eq_p_prime_eval2[iter] * batch_sum_check_random_combiner[1])
+                + eq_p_prime_eval2[iter] * batch_sum_check_random_combiner[1]
+                + eq_p_prime_eval3[iter] * batch_sum_check_random_combiner[16])
                 * p_p_prime[iter];
 
             value_at_1 += (eq_p_prime_eval1[iter + eq_p_prime_eval1.len() / 2]
                 * batch_sum_check_random_combiner[0]
                 + eq_p_prime_eval2[iter + eq_p_prime_eval1.len() / 2]
-                    * batch_sum_check_random_combiner[1])
+                    * batch_sum_check_random_combiner[1]
+                + eq_p_prime_eval3[iter + eq_p_prime_eval1.len() / 2]
+                    * batch_sum_check_random_combiner[16])
                 * p_p_prime[iter + eq_p_prime_eval1.len() / 2];
 
             let eq_p_prime_eval1_at_two =
                 f_2 * eq_p_prime_eval1[iter + eq_p_prime_eval1.len() / 2] - eq_p_prime_eval1[iter];
             let eq_p_prime_eval2_at_two =
                 f_2 * eq_p_prime_eval2[iter + eq_p_prime_eval1.len() / 2] - eq_p_prime_eval2[iter];
+            let eq_p_prime_eval3_at_two =
+                f_2 * eq_p_prime_eval3[iter + eq_p_prime_eval1.len() / 2] - eq_p_prime_eval3[iter];
             let p_p_prime_at_two =
                 f_2 * p_p_prime[iter + eq_p_prime_eval1.len() / 2] - p_p_prime[iter];
             value_at_2 += (eq_p_prime_eval1_at_two * batch_sum_check_random_combiner[0]
-                + eq_p_prime_eval2_at_two * batch_sum_check_random_combiner[1])
+                + eq_p_prime_eval2_at_two * batch_sum_check_random_combiner[1]
+                + eq_p_prime_eval3_at_two * batch_sum_check_random_combiner[16])
                 * p_p_prime_at_two;
 
             //----------
@@ -2834,6 +2897,8 @@ pub fn batch_evaluate_sum_check<F, H, S>(
                 (F::ONE - r) * eq_p_prime_eval1[i] + r * eq_p_prime_eval1[i + len / 2];
             eq_p_prime_eval2[i] =
                 (F::ONE - r) * eq_p_prime_eval2[i] + r * eq_p_prime_eval2[i + len / 2];
+            eq_p_prime_eval3[i] =
+                (F::ONE - r) * eq_p_prime_eval3[i] + r * eq_p_prime_eval3[i + len / 2];
             eq_h_erow_ecol_eval1[i] =
                 (F::ONE - r) * eq_h_erow_ecol_eval1[i] + r * eq_h_erow_ecol_eval1[i + len / 2];
 
@@ -2860,6 +2925,7 @@ pub fn batch_evaluate_sum_check<F, H, S>(
 
         eq_p_prime_eval1.resize(len / 2, F::ZERO);
         eq_p_prime_eval2.resize(len / 2, F::ZERO);
+        eq_p_prime_eval3.resize(len / 2, F::ZERO);
         eq_h_erow_ecol_eval1.resize(len / 2, F::ZERO);
 
         eq_circuit_eval_point.resize(len / 2, F::ZERO);
@@ -2890,7 +2956,7 @@ fn evaluate_H<F: PrimeField>(H: &ParityCheckMatrix<F>, u: &Vec<F>, size: usize) 
     H_at_u
 }
 
-fn evaluate_poly<F: PrimeField>(coeffs: &Vec<F>, point: &Vec<F>) -> F {
+pub fn evaluate_poly<F: PrimeField>(coeffs: &Vec<F>, point: &Vec<F>) -> F {
     let mut eval = F::ZERO;
     let tensor_point = point_to_tensor(1, point).1;
     for i in 0..tensor_point.len() {
@@ -3653,24 +3719,36 @@ mod test {
 
     #[test]
     fn test_setup() {
-        let num_vars = 15;
-        let batch_size = 1;
-        let mut rng = ChaCha8Rng::from_entropy();
+        for num_vars in 20..25 {
+            let batch_size = 1;
+            let mut rng = ChaCha8Rng::from_entropy();
+            let params = Pcs::setup(1 << num_vars, batch_size, rng).unwrap();
 
-        let params = Pcs::setup(1 << num_vars, batch_size, rng).unwrap();
+            println!("Number of variables: {}", num_vars);
+            println!(
+                "Blow up in poly sizes: {}, {}",
+                (1 << num_vars) / 256,
+                params.basefold_poly_size
+            );
+            println!(
+                "Blow up in num vars: {}, {}",
+                num_vars - 8,
+                params.basefold.num_vars
+            );
+        }
 
-        println!(
-            "{}, {}, {}, {}",
-            params.num_vars,
-            params.brakedown_row_len,
-            params.brakedown_num_rows,
-            params.brakedown_codeword_len
-        );
-        println!(
-            "{}, {}",
-            params.basefold_poly_size, params.basefold.num_vars
-        );
-        println!("{}", params.trusted_commits.len());
+        // println!(
+        //     "{}, {}, {}, {}",
+        //     params.num_vars,
+        //     params.brakedown_row_len,
+        //     params.brakedown_num_rows,
+        //     params.brakedown_codeword_len
+        // );
+        // println!(
+        //     "{}, {}",
+        //     params.basefold_poly_size, params.basefold.num_vars
+        // );
+        // println!("{}", params.trusted_commits.len());
         //println!("{:?}", params.basefold);
     }
 
@@ -3717,9 +3795,6 @@ mod test {
     fn test_open() {
         run_commit_open_verify::<_, Pcs, Blake2sTranscript<_>>();
     }
-
-    #[test]
-    fn test_basefold_batch_open() {}
 
     fn run_basefold_batch_open<T>() {
         let num_vars = 13;
