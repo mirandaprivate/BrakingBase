@@ -358,7 +358,7 @@ mod test {
             + TranscriptWrite<Pcs::CommitmentChunk, F>
             + InMemoryTranscript<Param = ()>,
     {
-        for num_vars in 13..21 {
+        for num_vars in 20..21 {
             println!("k {:?}", num_vars);
             // Setup
             let (pp, vp) = {
@@ -376,19 +376,20 @@ mod test {
                 let now = Instant::now();
 
                 let comm = Pcs::commit_and_write(&pp, &poly, &mut transcript).unwrap();
-                println!("comm time {:?}", now.elapsed());
+
                 let point = transcript.squeeze_challenges(num_vars);
                 // let eval = poly.evaluate(point.as_slice());
                 let eval = evaluate_poly(&poly.evals().to_vec(), &point);
                 transcript.write_field_element(&eval).unwrap();
                 let now2 = Instant::now();
-                Pcs::open(&pp, &poly, &comm, &point, &eval, &mut transcript).unwrap();
+
+                Pcs::open(&pp, &poly, &comm, &point, &eval, &mut transcript);
                 println!("proximity time {:?}", now2.elapsed());
 
                 transcript.into_proof()
             };
             // Verify
-            println!("Proof size = {} bytes", proof.len());
+            println!("Proof size = {} KB", proof.len() / 1024);
             let result = {
                 let mut transcript = T::from_proof((), proof.as_slice());
                 Pcs::verify(
