@@ -1,4 +1,4 @@
-use crate::frontend::halo2::circuit;
+// use crate::frontend::halo2::circuit;
 // use crate::frontend::halo2::circuit;
 use crate::pcs::multilinear::{basefold, brakedown};
 use crate::pcs::Commitment;
@@ -2914,185 +2914,341 @@ pub fn batch_evaluate_sum_check<F, H, S>(
     let f_2_inv = f_2.invert().unwrap();
     let f_3 = f_2 + F::ONE;
     for i in 0..sum_check_rounds {
-        let mut value_at_0 = F::ZERO;
-        let mut value_at_1 = F::ZERO;
-        let mut value_at_2 = F::ZERO;
+        // let mut value_at_0 = F::ZERO;
+        // let mut value_at_1 = F::ZERO;
+        // let mut value_at_2 = F::ZERO;
         // println!("The length of mask is {:?}", mask.len());
-        for iter in 0..eq_p_prime_eval1.len() / 2 {
-            value_at_0 += (eq_p_prime_eval1[iter] * batch_sum_check_random_combiner[0]
-                + eq_p_prime_eval2[iter] * batch_sum_check_random_combiner[1]
-                + eq_p_prime_eval3[iter] * batch_sum_check_random_combiner[16])
-                * p_p_prime[iter];
+        let (value_at_0, value_at_1, value_at_2) = (0..eq_p_prime_eval1.len() / 2)
+            .into_par_iter()
+            .map(|iter| {
+                let iter2 = iter + eq_p_prime_eval1.len() / 2;
+                let mut value_at_0 = (eq_p_prime_eval1[iter] * batch_sum_check_random_combiner[0]
+                    + eq_p_prime_eval2[iter] * batch_sum_check_random_combiner[1]
+                    + eq_p_prime_eval3[iter] * batch_sum_check_random_combiner[16])
+                    * p_p_prime[iter];
 
-            value_at_1 += (eq_p_prime_eval1[iter + eq_p_prime_eval1.len() / 2]
-                * batch_sum_check_random_combiner[0]
-                + eq_p_prime_eval2[iter + eq_p_prime_eval1.len() / 2]
-                    * batch_sum_check_random_combiner[1]
-                + eq_p_prime_eval3[iter + eq_p_prime_eval1.len() / 2]
-                    * batch_sum_check_random_combiner[16])
-                * p_p_prime[iter + eq_p_prime_eval1.len() / 2];
+                let mut value_at_1 = (eq_p_prime_eval1[iter2] * batch_sum_check_random_combiner[0]
+                    + eq_p_prime_eval2[iter2] * batch_sum_check_random_combiner[1]
+                    + eq_p_prime_eval3[iter2] * batch_sum_check_random_combiner[16])
+                    * p_p_prime[iter2];
 
-            let eq_p_prime_eval1_at_two =
-                f_2 * eq_p_prime_eval1[iter + eq_p_prime_eval1.len() / 2] - eq_p_prime_eval1[iter];
-            let eq_p_prime_eval2_at_two =
-                f_2 * eq_p_prime_eval2[iter + eq_p_prime_eval1.len() / 2] - eq_p_prime_eval2[iter];
-            let eq_p_prime_eval3_at_two =
-                f_2 * eq_p_prime_eval3[iter + eq_p_prime_eval1.len() / 2] - eq_p_prime_eval3[iter];
-            let p_p_prime_at_two =
-                f_2 * p_p_prime[iter + eq_p_prime_eval1.len() / 2] - p_p_prime[iter];
-            value_at_2 += (eq_p_prime_eval1_at_two * batch_sum_check_random_combiner[0]
-                + eq_p_prime_eval2_at_two * batch_sum_check_random_combiner[1]
-                + eq_p_prime_eval3_at_two * batch_sum_check_random_combiner[16])
-                * p_p_prime_at_two;
+                let eq_p_prime_eval1_at_two =
+                    f_2 * eq_p_prime_eval1[iter2] - eq_p_prime_eval1[iter];
+                let eq_p_prime_eval2_at_two =
+                    f_2 * eq_p_prime_eval2[iter2] - eq_p_prime_eval2[iter];
+                let eq_p_prime_eval3_at_two =
+                    f_2 * eq_p_prime_eval3[iter2] - eq_p_prime_eval3[iter];
+                let p_p_prime_at_two = f_2 * p_p_prime[iter2] - p_p_prime[iter];
+                let mut value_at_2 = (eq_p_prime_eval1_at_two * batch_sum_check_random_combiner[0]
+                    + eq_p_prime_eval2_at_two * batch_sum_check_random_combiner[1]
+                    + eq_p_prime_eval3_at_two * batch_sum_check_random_combiner[16])
+                    * p_p_prime_at_two;
 
-            //----------
-            value_at_0 += (eq_h_erow_ecol_eval1[iter] * batch_sum_check_random_combiner[2]
-                + eq_circuit_eval_point[iter] * batch_sum_check_random_combiner[3])
-                * h_erow_ecol[iter];
+                //----------
+                value_at_0 += (eq_h_erow_ecol_eval1[iter] * batch_sum_check_random_combiner[2]
+                    + eq_circuit_eval_point[iter] * batch_sum_check_random_combiner[3])
+                    * h_erow_ecol[iter];
 
-            value_at_1 += (eq_h_erow_ecol_eval1[iter + eq_p_prime_eval1.len() / 2]
-                * batch_sum_check_random_combiner[2]
-                + eq_circuit_eval_point[iter + eq_p_prime_eval1.len() / 2]
-                    * batch_sum_check_random_combiner[3])
-                * h_erow_ecol[iter + eq_p_prime_eval1.len() / 2];
+                value_at_1 += (eq_h_erow_ecol_eval1[iter2] * batch_sum_check_random_combiner[2]
+                    + eq_circuit_eval_point[iter2] * batch_sum_check_random_combiner[3])
+                    * h_erow_ecol[iter2];
 
-            let eq_h_erow_ecol_at_two = f_2
-                * eq_h_erow_ecol_eval1[iter + eq_p_prime_eval1.len() / 2]
-                - eq_h_erow_ecol_eval1[iter];
-            let eq_circuit_eval_point_at_two = f_2
-                * eq_circuit_eval_point[iter + eq_p_prime_eval1.len() / 2]
-                - eq_circuit_eval_point[iter];
-            let h_erow_ecol_at_two =
-                f_2 * h_erow_ecol[iter + eq_p_prime_eval1.len() / 2] - h_erow_ecol[iter];
-            value_at_2 += (eq_h_erow_ecol_at_two * batch_sum_check_random_combiner[2]
-                + eq_circuit_eval_point_at_two * batch_sum_check_random_combiner[3])
-                * h_erow_ecol_at_two;
+                let eq_h_erow_ecol_at_two =
+                    f_2 * eq_h_erow_ecol_eval1[iter2] - eq_h_erow_ecol_eval1[iter];
+                let eq_circuit_eval_point_at_two =
+                    f_2 * eq_circuit_eval_point[iter2] - eq_circuit_eval_point[iter];
+                let h_erow_ecol_at_two = f_2 * h_erow_ecol[iter2] - h_erow_ecol[iter];
+                value_at_2 += (eq_h_erow_ecol_at_two * batch_sum_check_random_combiner[2]
+                    + eq_circuit_eval_point_at_two * batch_sum_check_random_combiner[3])
+                    * h_erow_ecol_at_two;
 
-            //----------
-            value_at_0 +=
-                eq_h_erow_ecol_eval1[iter] * batch_sum_check_random_combiner[4] * h_val[iter];
+                //----------
+                value_at_0 +=
+                    eq_h_erow_ecol_eval1[iter] * batch_sum_check_random_combiner[4] * h_val[iter];
 
-            value_at_1 += eq_h_erow_ecol_eval1[iter + eq_p_prime_eval1.len() / 2]
-                * batch_sum_check_random_combiner[4]
-                * h_val[iter + eq_p_prime_eval1.len() / 2];
+                value_at_1 +=
+                    eq_h_erow_ecol_eval1[iter2] * batch_sum_check_random_combiner[4] * h_val[iter2];
 
-            let h_val_at_two = f_2 * h_val[iter + eq_p_prime_eval1.len() / 2] - h_val[iter];
-            value_at_2 += eq_h_erow_ecol_at_two * batch_sum_check_random_combiner[4] * h_val_at_two;
+                let h_val_at_two = f_2 * h_val[iter2] - h_val[iter];
+                value_at_2 +=
+                    eq_h_erow_ecol_at_two * batch_sum_check_random_combiner[4] * h_val_at_two;
 
-            //----------
+                //----------
 
-            value_at_0 += (read_final_ts_row[iter] * batch_sum_check_random_combiner[5]
-                + read_final_ts_col[iter] * batch_sum_check_random_combiner[6])
-                * eq_circuit_eval_point[iter];
+                value_at_0 += (read_final_ts_row[iter] * batch_sum_check_random_combiner[5]
+                    + read_final_ts_col[iter] * batch_sum_check_random_combiner[6])
+                    * eq_circuit_eval_point[iter];
 
-            value_at_1 += (read_final_ts_row[iter + eq_p_prime_eval1.len() / 2]
-                * batch_sum_check_random_combiner[5]
-                + read_final_ts_col[iter + eq_p_prime_eval1.len() / 2]
-                    * batch_sum_check_random_combiner[6])
-                * eq_circuit_eval_point[iter + eq_p_prime_eval1.len() / 2];
+                value_at_1 += (read_final_ts_row[iter2] * batch_sum_check_random_combiner[5]
+                    + read_final_ts_col[iter2] * batch_sum_check_random_combiner[6])
+                    * eq_circuit_eval_point[iter2];
 
-            let read_final_ts_row_at_two = f_2
-                * read_final_ts_row[iter + eq_p_prime_eval1.len() / 2]
-                - read_final_ts_row[iter];
-            let read_final_ts_col_at_two = f_2
-                * read_final_ts_col[iter + eq_p_prime_eval1.len() / 2]
-                - read_final_ts_col[iter];
+                let read_final_ts_row_at_two =
+                    f_2 * read_final_ts_row[iter2] - read_final_ts_row[iter];
+                let read_final_ts_col_at_two =
+                    f_2 * read_final_ts_col[iter2] - read_final_ts_col[iter];
 
-            value_at_2 += (read_final_ts_row_at_two * batch_sum_check_random_combiner[5]
-                + read_final_ts_col_at_two * batch_sum_check_random_combiner[6])
-                * eq_circuit_eval_point_at_two;
+                value_at_2 += (read_final_ts_row_at_two * batch_sum_check_random_combiner[5]
+                    + read_final_ts_col_at_two * batch_sum_check_random_combiner[6])
+                    * eq_circuit_eval_point_at_two;
 
-            //---------
-            value_at_0 += (eq_quarks_sum_check[iter] * batch_sum_check_random_combiner[7]
-                + eq_circuit_eval_point[iter] * batch_sum_check_random_combiner[8])
-                * circuit11[iter];
+                //---------
+                value_at_0 += (eq_quarks_sum_check[iter] * batch_sum_check_random_combiner[7]
+                    + eq_circuit_eval_point[iter] * batch_sum_check_random_combiner[8])
+                    * circuit11[iter];
 
-            value_at_1 += (eq_quarks_sum_check[iter + eq_p_prime_eval1.len() / 2]
-                * batch_sum_check_random_combiner[7]
-                + eq_circuit_eval_point[iter + eq_p_prime_eval1.len() / 2]
-                    * batch_sum_check_random_combiner[8])
-                * circuit11[iter + eq_p_prime_eval1.len() / 2];
+                value_at_1 += (eq_quarks_sum_check[iter2] * batch_sum_check_random_combiner[7]
+                    + eq_circuit_eval_point[iter2] * batch_sum_check_random_combiner[8])
+                    * circuit11[iter2];
 
-            let eq_quarks_sum_check_at_two = f_2
-                * eq_quarks_sum_check[iter + eq_p_prime_eval1.len() / 2]
-                - eq_quarks_sum_check[iter];
-            let circuit11_at_two =
-                f_2 * circuit11[iter + eq_p_prime_eval1.len() / 2] - circuit11[iter];
+                let eq_quarks_sum_check_at_two =
+                    f_2 * eq_quarks_sum_check[iter2] - eq_quarks_sum_check[iter];
+                let circuit11_at_two = f_2 * circuit11[iter2] - circuit11[iter];
 
-            value_at_2 += (eq_quarks_sum_check_at_two * batch_sum_check_random_combiner[7]
-                + eq_circuit_eval_point_at_two * batch_sum_check_random_combiner[8])
-                * circuit11_at_two;
+                value_at_2 += (eq_quarks_sum_check_at_two * batch_sum_check_random_combiner[7]
+                    + eq_circuit_eval_point_at_two * batch_sum_check_random_combiner[8])
+                    * circuit11_at_two;
 
-            //---------
-            value_at_0 += (eq_quarks_sum_check[iter] * batch_sum_check_random_combiner[9]
-                + eq_circuit_eval_point[iter] * batch_sum_check_random_combiner[10])
-                * circuit21[iter];
+                //---------
+                value_at_0 += (eq_quarks_sum_check[iter] * batch_sum_check_random_combiner[9]
+                    + eq_circuit_eval_point[iter] * batch_sum_check_random_combiner[10])
+                    * circuit21[iter];
 
-            value_at_1 += (eq_quarks_sum_check[iter + eq_p_prime_eval1.len() / 2]
-                * batch_sum_check_random_combiner[9]
-                + eq_circuit_eval_point[iter + eq_p_prime_eval1.len() / 2]
-                    * batch_sum_check_random_combiner[10])
-                * circuit21[iter + eq_p_prime_eval1.len() / 2];
+                value_at_1 += (eq_quarks_sum_check[iter2] * batch_sum_check_random_combiner[9]
+                    + eq_circuit_eval_point[iter2] * batch_sum_check_random_combiner[10])
+                    * circuit21[iter2];
 
-            let circuit21_at_two =
-                f_2 * circuit21[iter + eq_p_prime_eval1.len() / 2] - circuit21[iter];
+                let circuit21_at_two = f_2 * circuit21[iter2] - circuit21[iter];
 
-            value_at_2 += (eq_quarks_sum_check_at_two * batch_sum_check_random_combiner[9]
-                + eq_circuit_eval_point_at_two * batch_sum_check_random_combiner[10])
-                * circuit21_at_two;
+                value_at_2 += (eq_quarks_sum_check_at_two * batch_sum_check_random_combiner[9]
+                    + eq_circuit_eval_point_at_two * batch_sum_check_random_combiner[10])
+                    * circuit21_at_two;
 
-            //---------
-            value_at_0 += (eq_quarks_sum_check[iter] * batch_sum_check_random_combiner[11]
-                + eq_circuit_eval_point[iter] * batch_sum_check_random_combiner[12])
-                * circuit31[iter];
+                //---------
+                value_at_0 += (eq_quarks_sum_check[iter] * batch_sum_check_random_combiner[11]
+                    + eq_circuit_eval_point[iter] * batch_sum_check_random_combiner[12])
+                    * circuit31[iter];
 
-            value_at_1 += (eq_quarks_sum_check[iter + eq_p_prime_eval1.len() / 2]
-                * batch_sum_check_random_combiner[11]
-                + eq_circuit_eval_point[iter + eq_p_prime_eval1.len() / 2]
-                    * batch_sum_check_random_combiner[12])
-                * circuit31[iter + eq_p_prime_eval1.len() / 2];
+                value_at_1 += (eq_quarks_sum_check[iter2] * batch_sum_check_random_combiner[11]
+                    + eq_circuit_eval_point[iter2] * batch_sum_check_random_combiner[12])
+                    * circuit31[iter2];
 
-            let circuit31_at_two =
-                f_2 * circuit31[iter + eq_p_prime_eval1.len() / 2] - circuit31[iter];
+                let circuit31_at_two = f_2 * circuit31[iter2] - circuit31[iter];
 
-            value_at_2 += (eq_quarks_sum_check_at_two * batch_sum_check_random_combiner[11]
-                + eq_circuit_eval_point_at_two * batch_sum_check_random_combiner[12])
-                * circuit31_at_two;
+                value_at_2 += (eq_quarks_sum_check_at_two * batch_sum_check_random_combiner[11]
+                    + eq_circuit_eval_point_at_two * batch_sum_check_random_combiner[12])
+                    * circuit31_at_two;
 
-            //---------
-            value_at_0 += (eq_quarks_sum_check[iter] * batch_sum_check_random_combiner[13]
-                + eq_circuit_eval_point[iter] * batch_sum_check_random_combiner[14])
-                * circuit41[iter];
+                //---------
+                value_at_0 += (eq_quarks_sum_check[iter] * batch_sum_check_random_combiner[13]
+                    + eq_circuit_eval_point[iter] * batch_sum_check_random_combiner[14])
+                    * circuit41[iter];
 
-            value_at_1 += (eq_quarks_sum_check[iter + eq_p_prime_eval1.len() / 2]
-                * batch_sum_check_random_combiner[13]
-                + eq_circuit_eval_point[iter + eq_p_prime_eval1.len() / 2]
-                    * batch_sum_check_random_combiner[14])
-                * circuit41[iter + eq_p_prime_eval1.len() / 2];
+                value_at_1 += (eq_quarks_sum_check[iter2] * batch_sum_check_random_combiner[13]
+                    + eq_circuit_eval_point[iter2] * batch_sum_check_random_combiner[14])
+                    * circuit41[iter2];
 
-            let circuit41_at_two =
-                f_2 * circuit41[iter + eq_p_prime_eval1.len() / 2] - circuit41[iter];
+                let circuit41_at_two = f_2 * circuit41[iter2] - circuit41[iter];
 
-            value_at_2 += (eq_quarks_sum_check_at_two * batch_sum_check_random_combiner[13]
-                + eq_circuit_eval_point_at_two * batch_sum_check_random_combiner[14])
-                * circuit41_at_two;
+                value_at_2 += (eq_quarks_sum_check_at_two * batch_sum_check_random_combiner[13]
+                    + eq_circuit_eval_point_at_two * batch_sum_check_random_combiner[14])
+                    * circuit41_at_two;
 
-            //----------
-            value_at_0 +=
-                eq_circuit_eval_point[iter] * batch_sum_check_random_combiner[15] * h_row_col[iter];
+                //----------
+                value_at_0 += eq_circuit_eval_point[iter]
+                    * batch_sum_check_random_combiner[15]
+                    * h_row_col[iter];
 
-            value_at_1 += eq_circuit_eval_point[iter + eq_p_prime_eval1.len() / 2]
-                * batch_sum_check_random_combiner[15]
-                * h_row_col[iter + eq_p_prime_eval1.len() / 2];
+                value_at_1 += eq_circuit_eval_point[iter2]
+                    * batch_sum_check_random_combiner[15]
+                    * h_row_col[iter2];
 
-            let h_row_col_at_two =
-                f_2 * h_row_col[iter + eq_p_prime_eval1.len() / 2] - h_row_col[iter];
-            value_at_2 += eq_circuit_eval_point_at_two
-                * batch_sum_check_random_combiner[15]
-                * h_row_col_at_two;
+                let h_row_col_at_two = f_2 * h_row_col[iter2] - h_row_col[iter];
+                value_at_2 += eq_circuit_eval_point_at_two
+                    * batch_sum_check_random_combiner[15]
+                    * h_row_col_at_two;
+                (value_at_0, value_at_1, value_at_2)
+                //----------
+            })
+            .reduce_with(|(acc0, acc1, acc2), (value_at_0, value_at_1, value_at_2)| {
+                (acc0 + value_at_0, acc1 + value_at_1, acc2 + value_at_2)
+            })
+            .unwrap();
+        // for iter in 0..eq_p_prime_eval1.len() / 2 {
+        //     value_at_0 += (eq_p_prime_eval1[iter] * batch_sum_check_random_combiner[0]
+        //         + eq_p_prime_eval2[iter] * batch_sum_check_random_combiner[1]
+        //         + eq_p_prime_eval3[iter] * batch_sum_check_random_combiner[16])
+        //         * p_p_prime[iter];
 
-            //----------
-        }
+        //     value_at_1 += (eq_p_prime_eval1[iter + eq_p_prime_eval1.len() / 2]
+        //         * batch_sum_check_random_combiner[0]
+        //         + eq_p_prime_eval2[iter + eq_p_prime_eval1.len() / 2]
+        //             * batch_sum_check_random_combiner[1]
+        //         + eq_p_prime_eval3[iter + eq_p_prime_eval1.len() / 2]
+        //             * batch_sum_check_random_combiner[16])
+        //         * p_p_prime[iter + eq_p_prime_eval1.len() / 2];
+
+        //     let eq_p_prime_eval1_at_two =
+        //         f_2 * eq_p_prime_eval1[iter + eq_p_prime_eval1.len() / 2] - eq_p_prime_eval1[iter];
+        //     let eq_p_prime_eval2_at_two =
+        //         f_2 * eq_p_prime_eval2[iter + eq_p_prime_eval1.len() / 2] - eq_p_prime_eval2[iter];
+        //     let eq_p_prime_eval3_at_two =
+        //         f_2 * eq_p_prime_eval3[iter + eq_p_prime_eval1.len() / 2] - eq_p_prime_eval3[iter];
+        //     let p_p_prime_at_two =
+        //         f_2 * p_p_prime[iter + eq_p_prime_eval1.len() / 2] - p_p_prime[iter];
+        //     value_at_2 += (eq_p_prime_eval1_at_two * batch_sum_check_random_combiner[0]
+        //         + eq_p_prime_eval2_at_two * batch_sum_check_random_combiner[1]
+        //         + eq_p_prime_eval3_at_two * batch_sum_check_random_combiner[16])
+        //         * p_p_prime_at_two;
+
+        //     //----------
+        //     value_at_0 += (eq_h_erow_ecol_eval1[iter] * batch_sum_check_random_combiner[2]
+        //         + eq_circuit_eval_point[iter] * batch_sum_check_random_combiner[3])
+        //         * h_erow_ecol[iter];
+
+        //     value_at_1 += (eq_h_erow_ecol_eval1[iter + eq_p_prime_eval1.len() / 2]
+        //         * batch_sum_check_random_combiner[2]
+        //         + eq_circuit_eval_point[iter + eq_p_prime_eval1.len() / 2]
+        //             * batch_sum_check_random_combiner[3])
+        //         * h_erow_ecol[iter + eq_p_prime_eval1.len() / 2];
+
+        //     let eq_h_erow_ecol_at_two = f_2
+        //         * eq_h_erow_ecol_eval1[iter + eq_p_prime_eval1.len() / 2]
+        //         - eq_h_erow_ecol_eval1[iter];
+        //     let eq_circuit_eval_point_at_two = f_2
+        //         * eq_circuit_eval_point[iter + eq_p_prime_eval1.len() / 2]
+        //         - eq_circuit_eval_point[iter];
+        //     let h_erow_ecol_at_two =
+        //         f_2 * h_erow_ecol[iter + eq_p_prime_eval1.len() / 2] - h_erow_ecol[iter];
+        //     value_at_2 += (eq_h_erow_ecol_at_two * batch_sum_check_random_combiner[2]
+        //         + eq_circuit_eval_point_at_two * batch_sum_check_random_combiner[3])
+        //         * h_erow_ecol_at_two;
+
+        //     //----------
+        //     value_at_0 +=
+        //         eq_h_erow_ecol_eval1[iter] * batch_sum_check_random_combiner[4] * h_val[iter];
+
+        //     value_at_1 += eq_h_erow_ecol_eval1[iter + eq_p_prime_eval1.len() / 2]
+        //         * batch_sum_check_random_combiner[4]
+        //         * h_val[iter + eq_p_prime_eval1.len() / 2];
+
+        //     let h_val_at_two = f_2 * h_val[iter + eq_p_prime_eval1.len() / 2] - h_val[iter];
+        //     value_at_2 += eq_h_erow_ecol_at_two * batch_sum_check_random_combiner[4] * h_val_at_two;
+
+        //     //----------
+
+        //     value_at_0 += (read_final_ts_row[iter] * batch_sum_check_random_combiner[5]
+        //         + read_final_ts_col[iter] * batch_sum_check_random_combiner[6])
+        //         * eq_circuit_eval_point[iter];
+
+        //     value_at_1 += (read_final_ts_row[iter + eq_p_prime_eval1.len() / 2]
+        //         * batch_sum_check_random_combiner[5]
+        //         + read_final_ts_col[iter + eq_p_prime_eval1.len() / 2]
+        //             * batch_sum_check_random_combiner[6])
+        //         * eq_circuit_eval_point[iter + eq_p_prime_eval1.len() / 2];
+
+        //     let read_final_ts_row_at_two = f_2
+        //         * read_final_ts_row[iter + eq_p_prime_eval1.len() / 2]
+        //         - read_final_ts_row[iter];
+        //     let read_final_ts_col_at_two = f_2
+        //         * read_final_ts_col[iter + eq_p_prime_eval1.len() / 2]
+        //         - read_final_ts_col[iter];
+
+        //     value_at_2 += (read_final_ts_row_at_two * batch_sum_check_random_combiner[5]
+        //         + read_final_ts_col_at_two * batch_sum_check_random_combiner[6])
+        //         * eq_circuit_eval_point_at_two;
+
+        //     //---------
+        //     value_at_0 += (eq_quarks_sum_check[iter] * batch_sum_check_random_combiner[7]
+        //         + eq_circuit_eval_point[iter] * batch_sum_check_random_combiner[8])
+        //         * circuit11[iter];
+
+        //     value_at_1 += (eq_quarks_sum_check[iter + eq_p_prime_eval1.len() / 2]
+        //         * batch_sum_check_random_combiner[7]
+        //         + eq_circuit_eval_point[iter + eq_p_prime_eval1.len() / 2]
+        //             * batch_sum_check_random_combiner[8])
+        //         * circuit11[iter + eq_p_prime_eval1.len() / 2];
+
+        //     let eq_quarks_sum_check_at_two = f_2
+        //         * eq_quarks_sum_check[iter + eq_p_prime_eval1.len() / 2]
+        //         - eq_quarks_sum_check[iter];
+        //     let circuit11_at_two =
+        //         f_2 * circuit11[iter + eq_p_prime_eval1.len() / 2] - circuit11[iter];
+
+        //     value_at_2 += (eq_quarks_sum_check_at_two * batch_sum_check_random_combiner[7]
+        //         + eq_circuit_eval_point_at_two * batch_sum_check_random_combiner[8])
+        //         * circuit11_at_two;
+
+        //     //---------
+        //     value_at_0 += (eq_quarks_sum_check[iter] * batch_sum_check_random_combiner[9]
+        //         + eq_circuit_eval_point[iter] * batch_sum_check_random_combiner[10])
+        //         * circuit21[iter];
+
+        //     value_at_1 += (eq_quarks_sum_check[iter + eq_p_prime_eval1.len() / 2]
+        //         * batch_sum_check_random_combiner[9]
+        //         + eq_circuit_eval_point[iter + eq_p_prime_eval1.len() / 2]
+        //             * batch_sum_check_random_combiner[10])
+        //         * circuit21[iter + eq_p_prime_eval1.len() / 2];
+
+        //     let circuit21_at_two =
+        //         f_2 * circuit21[iter + eq_p_prime_eval1.len() / 2] - circuit21[iter];
+
+        //     value_at_2 += (eq_quarks_sum_check_at_two * batch_sum_check_random_combiner[9]
+        //         + eq_circuit_eval_point_at_two * batch_sum_check_random_combiner[10])
+        //         * circuit21_at_two;
+
+        //     //---------
+        //     value_at_0 += (eq_quarks_sum_check[iter] * batch_sum_check_random_combiner[11]
+        //         + eq_circuit_eval_point[iter] * batch_sum_check_random_combiner[12])
+        //         * circuit31[iter];
+
+        //     value_at_1 += (eq_quarks_sum_check[iter + eq_p_prime_eval1.len() / 2]
+        //         * batch_sum_check_random_combiner[11]
+        //         + eq_circuit_eval_point[iter + eq_p_prime_eval1.len() / 2]
+        //             * batch_sum_check_random_combiner[12])
+        //         * circuit31[iter + eq_p_prime_eval1.len() / 2];
+
+        //     let circuit31_at_two =
+        //         f_2 * circuit31[iter + eq_p_prime_eval1.len() / 2] - circuit31[iter];
+
+        //     value_at_2 += (eq_quarks_sum_check_at_two * batch_sum_check_random_combiner[11]
+        //         + eq_circuit_eval_point_at_two * batch_sum_check_random_combiner[12])
+        //         * circuit31_at_two;
+
+        //     //---------
+        //     value_at_0 += (eq_quarks_sum_check[iter] * batch_sum_check_random_combiner[13]
+        //         + eq_circuit_eval_point[iter] * batch_sum_check_random_combiner[14])
+        //         * circuit41[iter];
+
+        //     value_at_1 += (eq_quarks_sum_check[iter + eq_p_prime_eval1.len() / 2]
+        //         * batch_sum_check_random_combiner[13]
+        //         + eq_circuit_eval_point[iter + eq_p_prime_eval1.len() / 2]
+        //             * batch_sum_check_random_combiner[14])
+        //         * circuit41[iter + eq_p_prime_eval1.len() / 2];
+
+        //     let circuit41_at_two =
+        //         f_2 * circuit41[iter + eq_p_prime_eval1.len() / 2] - circuit41[iter];
+
+        //     value_at_2 += (eq_quarks_sum_check_at_two * batch_sum_check_random_combiner[13]
+        //         + eq_circuit_eval_point_at_two * batch_sum_check_random_combiner[14])
+        //         * circuit41_at_two;
+
+        //     //----------
+        //     value_at_0 +=
+        //         eq_circuit_eval_point[iter] * batch_sum_check_random_combiner[15] * h_row_col[iter];
+
+        //     value_at_1 += eq_circuit_eval_point[iter + eq_p_prime_eval1.len() / 2]
+        //         * batch_sum_check_random_combiner[15]
+        //         * h_row_col[iter + eq_p_prime_eval1.len() / 2];
+
+        //     let h_row_col_at_two =
+        //         f_2 * h_row_col[iter + eq_p_prime_eval1.len() / 2] - h_row_col[iter];
+        //     value_at_2 += eq_circuit_eval_point_at_two
+        //         * batch_sum_check_random_combiner[15]
+        //         * h_row_col_at_two;
+
+        //     //----------
+        // }
 
         let polynomial_current_round = [
             value_at_0 * f_2_inv - value_at_1 + value_at_2 * f_2_inv,
