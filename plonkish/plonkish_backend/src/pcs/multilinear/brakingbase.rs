@@ -3126,11 +3126,24 @@ pub fn basefold_batch_open<F, H, S>(
 
     let now = Instant::now();
     let mut combined_poly = vec![F::ZERO; 1 << num_vars];
-    for i in 0..polys.len() {
-        for j in 0..combined_poly.len() {
-            combined_poly[j] += random_combiners[i] * polys[i][j];
-        }
-    }
+
+    let mut combined_poly = vec![F::ZERO; 1 << num_vars];
+
+    combined_poly
+        .par_iter_mut()
+        .enumerate()
+        .for_each(|(j, combined)| {
+            for i in 0..polys.len() {
+                *combined += random_combiners[i] * polys[i][j];
+            }
+        });
+
+    // let mut combined_poly = vec![F::ZERO; 1 << num_vars];
+    // for i in 0..polys.len() {
+    //     for j in 0..combined_poly.len() {
+    //         combined_poly[j] += random_combiners[i] * polys[i][j];
+    //     }
+    // }
     println!(
         "Time to compute combined polynomial in basefold batch open = {:?}",
         now.elapsed(),
@@ -3144,20 +3157,24 @@ pub fn basefold_batch_open<F, H, S>(
     let mut point_clone = point.clone();
     point_clone.reverse();
 
-    // let combined_eval = evaluate_poly(&combined_poly, &point);
-    // let combined_eval_rev = evaluate_poly(&combined_poly_clone, &point_clone);
-    // println!(
-    //     "Combined poly eval = {:?}, rev eval = {:?}",
-    //     combined_eval, combined_eval_rev
-    // );
-
     let now = Instant::now();
     let mut combined_codeword_0 = vec![F::ZERO; comms[0].codeword.poly.len()];
-    for i in 0..polys.len() {
-        for j in 0..combined_codeword_0.len() {
-            combined_codeword_0[j] += random_combiners[i] * comms[i].codeword.poly[j];
-        }
-    }
+
+    combined_codeword_0
+        .par_iter_mut()
+        .enumerate()
+        .for_each(|(j, combined)| {
+            for i in 0..polys.len() {
+                *combined += random_combiners[i] * comms[i].codeword.poly[j];
+            }
+        });
+
+    // let mut combined_codeword_0 = vec![F::ZERO; comms[0].codeword.poly.len()];
+    // for i in 0..polys.len() {
+    //     for j in 0..combined_codeword_0.len() {
+    //         combined_codeword_0[j] += random_combiners[i] * comms[i].codeword.poly[j];
+    //     }
+    // }
     // For testing
     // let mut combined_codeword_1 = combined_codeword_0.clone();
 
@@ -3171,11 +3188,24 @@ pub fn basefold_batch_open<F, H, S>(
 
     // Assuming all polys have len 1 << num_vars
     let mut eq_vec = vec![F::ZERO; 1 << num_vars];
-    let mut temp = F::ZERO;
-    for i in 0..eq_vec.len() {
-        eq_vec[i] = eq(i, &point);
-        temp += eq_vec[i];
-    }
+    // let mut temp = F::ZERO;
+    eq_vec
+        .par_iter_mut()
+        .enumerate()
+        .for_each(|(i, eq_element)| {
+            *eq_element = eq(i, &point);
+        });
+
+    //---> In case temp is required
+    // let temp = eq_vec
+    //     .par_iter_mut()
+    //     .enumerate()
+    //     .map(|(i, eq_element)| {
+    //         *eq_element = eq(i, &point);
+    //         eq_element.clone()
+    //     })
+    //     .reduce_with(|acc, element| acc + element).unwrap();
+
     // reverse_index_bits_in_place(&mut eq_vec);
     assert_eq!(eq_vec.len(), polys[0].len());
     // println!("eq = {:?}", temp);
@@ -3191,17 +3221,28 @@ pub fn basefold_batch_open<F, H, S>(
     // Commit phase
     let now = Instant::now();
     for iter in 0..num_rounds {
-        let mut a_0 = F::ZERO;
-        let mut a_1 = F::ZERO;
-        let mut a_2 = F::ZERO;
+        // let mut a_0 = F::ZERO;
+        // let mut a_1 = F::ZERO;
+        // let mut a_2 = F::ZERO;
 
         let offset = eq_vec.len() / 2;
-        for i in 0..offset {
-            a_0 += eq_vec[i] * combined_poly[i];
-            a_1 += eq_vec[offset + i] * combined_poly[offset + i];
-            a_2 += (f_2 * eq_vec[offset + i] - eq_vec[i])
-                * (f_2 * combined_poly[offset + i] - combined_poly[i]);
-        }
+        let (a_0, a_1, a_2) = (0..offset)
+            .into_par_iter()
+            .map(|i| {
+                let a_0 = eq_vec[i] * combined_poly[i];
+                let a_1 = eq_vec[offset + i] * combined_poly[offset + i];
+                let a_2 = (f_2 * eq_vec[offset + i] - eq_vec[i])
+                    * (f_2 * combined_poly[offset + i] - combined_poly[i]);
+                (a_0, a_1, a_2)
+            })
+            .reduce_with(|(acc0, acc1, acc2), (a_0, a_1, a_2)| (acc0 + a_0, acc1 + a_1, acc2 + a_2))
+            .unwrap();
+        // for i in 0..offset {
+        //     a_0 += eq_vec[i] * combined_poly[i];
+        //     a_1 += eq_vec[offset + i] * combined_poly[offset + i];
+        //     a_2 += (f_2 * eq_vec[offset + i] - eq_vec[i])
+        //         * (f_2 * combined_poly[offset + i] - combined_poly[i]);
+        // }
         let polynomial_current_round = [
             a_0 * f_2_inv - a_1 + a_2 * f_2_inv,
             -(f_3 * a_0 * f_2_inv) + f_2 * a_1 - a_2 * f_2_inv,
@@ -3216,8 +3257,9 @@ pub fn basefold_batch_open<F, H, S>(
 
         let offset = eq_vec.len() / 2;
         for i in 0..offset {
-            eq_vec[i] = (F::ONE - r) * eq_vec[i] + r * eq_vec[offset + i];
-            combined_poly[i] = (F::ONE - r) * combined_poly[i] + r * combined_poly[offset + i];
+            let one_minus_r = F::ONE - r;
+            eq_vec[i] = (one_minus_r) * eq_vec[i] + r * eq_vec[offset + i];
+            combined_poly[i] = (one_minus_r) * combined_poly[i] + r * combined_poly[offset + i];
         }
 
         eq_vec.resize(eq_vec.len() / 2, F::ZERO);
