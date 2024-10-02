@@ -2335,27 +2335,57 @@ pub fn first_sum_check_prover<F, H, S>(
     let f_2_inv = f_2.invert().unwrap();
     let f_3 = f_2 + F::ONE;
     for i in 0..sum_check_rounds {
-        let mut a1_0 = F::ZERO;
-        let mut a1_1 = F::ZERO;
-        let mut a1_2 = F::ZERO;
+        // let mut a1_0 = F::ZERO;
+        // let mut a1_1 = F::ZERO;
+        // let mut a1_2 = F::ZERO;
+        // let mut a2_0 = F::ZERO;
+        // let mut a2_1 = F::ZERO;
+        // let mut a2_2 = F::ZERO;
         // println!("The length of mask is {:?}", mask.len());
-        for iter in 0..mask.len() / 2 {
-            a1_0 += mask[iter] * p_p_prime[iter];
-            a1_1 += mask[iter + mask.len() / 2] * p_p_prime[iter + mask.len() / 2];
-            a1_2 += (f_2 * mask[iter + mask.len() / 2] - mask[iter])
-                * (f_2 * p_p_prime[iter + mask.len() / 2] - p_p_prime[iter]);
-        }
+        let (a1_0, a1_1, a1_2, a2_0, a2_1, a2_2) = (0..mask.len() / 2)
+            .into_par_iter()
+            .map(|iter| {
+                let iter2 = iter + mask.len() / 2;
+                let a1_0 = mask[iter] * p_p_prime[iter];
+                let a1_1 = mask[iter2] * p_p_prime[iter2];
+                let a1_2 =
+                    (f_2 * mask[iter2] - mask[iter]) * (f_2 * p_p_prime[iter2] - p_p_prime[iter]);
+                let a2_0 = h[iter] * p_p_prime[iter];
+                let a2_1 = h[iter2] * p_p_prime[iter2];
+                let a2_2 = (f_2 * h[iter2] - h[iter]) * (f_2 * p_p_prime[iter2] - p_p_prime[iter]);
+                (a1_0, a1_1, a1_2, a2_0, a2_1, a2_2)
+            })
+            .reduce_with(
+                |(acc0, acc1, acc2, acc3, acc4, acc5), (a1_0, a1_1, a1_2, a2_0, a2_1, a2_2)| {
+                    (
+                        acc0 + a1_0,
+                        acc1 + a1_1,
+                        acc2 + a1_2,
+                        acc3 + a2_0,
+                        acc4 + a2_1,
+                        acc5 + a2_2,
+                    )
+                },
+            )
+            .unwrap();
 
-        let mut a2_0 = F::ZERO;
-        let mut a2_1 = F::ZERO;
-        let mut a2_2 = F::ZERO;
+        // for iter in 0..mask.len() / 2 {
+        //     a1_0 += mask[iter] * p_p_prime[iter];
+        //     a1_1 += mask[iter + mask.len() / 2] * p_p_prime[iter + mask.len() / 2];
+        //     a1_2 += (f_2 * mask[iter + mask.len() / 2] - mask[iter])
+        //         * (f_2 * p_p_prime[iter + mask.len() / 2] - p_p_prime[iter]);
+        // }
 
-        for iter in 0..mask.len() / 2 {
-            a2_0 += h[iter] * p_p_prime[iter];
-            a2_1 += h[iter + mask.len() / 2] * p_p_prime[iter + mask.len() / 2];
-            a2_2 += (f_2 * h[iter + mask.len() / 2] - h[iter])
-                * (f_2 * p_p_prime[iter + mask.len() / 2] - p_p_prime[iter]);
-        }
+        // let mut a2_0 = F::ZERO;
+        // let mut a2_1 = F::ZERO;
+        // let mut a2_2 = F::ZERO;
+
+        // for iter in 0..mask.len() / 2 {
+        //     a2_0 += h[iter] * p_p_prime[iter];
+        //     a2_1 += h[iter + mask.len() / 2] * p_p_prime[iter + mask.len() / 2];
+        //     a2_2 += (f_2 * h[iter + mask.len() / 2] - h[iter])
+        //         * (f_2 * p_p_prime[iter + mask.len() / 2] - p_p_prime[iter]);
+        // }
 
         // let mask_at_zero: F = mask[0..mask.len() / 2].iter().sum();
         // let mask_at_one: F = mask[mask.len() / 2..].iter().sum();
@@ -2391,9 +2421,11 @@ pub fn first_sum_check_prover<F, H, S>(
 
         let mask_len = mask.len();
         for i in 0..mask_len / 2 {
-            mask[i] = (F::ONE - r) * mask[i] + r * mask[i + mask_len / 2];
-            p_p_prime[i] = (F::ONE - r) * p_p_prime[i] + r * p_p_prime[i + mask_len / 2];
-            h[i] = (F::ONE - r) * h[i] + r * h[i + mask_len / 2];
+            let one_minus_r = (F::ONE - r);
+            let i_plus_mask = i + mask_len / 2;
+            mask[i] = one_minus_r * mask[i] + r * mask[i_plus_mask];
+            p_p_prime[i] = one_minus_r * p_p_prime[i] + r * p_p_prime[i_plus_mask];
+            h[i] = one_minus_r * h[i] + r * h[i_plus_mask];
         }
 
         mask.resize(mask_len / 2, F::ZERO);
