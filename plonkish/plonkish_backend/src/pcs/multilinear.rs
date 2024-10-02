@@ -358,7 +358,7 @@ mod test {
             + TranscriptWrite<Pcs::CommitmentChunk, F>
             + InMemoryTranscript<Param = ()>,
     {
-        for num_vars in 20..21 {
+        for num_vars in 24..25 {
             println!("k {:?}", num_vars);
             // Setup
             let (pp, vp) = {
@@ -375,7 +375,9 @@ mod test {
                 let poly = MultilinearPolynomial::rand(num_vars, OsRng);
                 let now = Instant::now();
 
+                let now = Instant::now();
                 let comm = Pcs::commit_and_write(&pp, &poly, &mut transcript).unwrap();
+                println!("commit time {:?}", now.elapsed());
 
                 let point = transcript.squeeze_challenges(num_vars);
                 // let eval = poly.evaluate(point.as_slice());

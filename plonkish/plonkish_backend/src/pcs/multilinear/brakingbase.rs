@@ -45,7 +45,7 @@ use std::{collections::HashMap, iter, ops::Deref, time::Instant};
 
 use super::basefold::{
     Basefold, BasefoldCommitment, BasefoldExtParams, BasefoldParams, BasefoldProverParams,
-    BasefoldVerifierParams, Type1Polynomial,
+    BasefoldVerifierParams, Type1Polynomial, Type2Polynomial,
 };
 use plonky2_util::{ceil_div_usize, log2_strict, reverse_bits, reverse_index_bits_in_place};
 use rand_chacha::{
@@ -194,6 +194,12 @@ where
         let brakedown_codeword_len = brakedown.codeword_len();
         let num_brakedown_queries = brakedown.num_column_opening();
         let parity_check_matrix = brakedown.parity_check_matrix();
+
+        println!(
+            "Len of parity check matrix and its log = {} {}",
+            parity_check_matrix.row.len(),
+            parity_check_matrix.row.len().next_power_of_two().ilog2()
+        );
 
         // println!(
         //     "row_len = {}, parity_check_matrix_len = {}",
@@ -3098,6 +3104,75 @@ fn create_grand_prod_circ<F: PrimeField>(circuit: &mut Vec<F>) {
         layer_size /= 2;
     }
 }
+
+pub fn basefold_batch_commit<F, H, S>(pp: &BasefoldProverParams<F>, polys: &mut Vec<Vec<F>>)
+where
+    F: PrimeField + Serialize + DeserializeOwned,
+    H: Hash,
+    S: BrakingbaseSpec,
+{
+    let polys_type_2: Vec<Type2Polynomial<F>> = polys
+        .into_iter()
+        .map(|poly| Type2Polynomial { poly: poly })
+        .collect();
+    let codewords: Vec<Vec<F>> = polys_type_2
+        .par_iter()
+        .map(|&poly| {
+            if (pp.rs_basecode) {
+                let mut basecode = basefold::encode_rs_basecode(
+                    &poly,
+                    1 << pp.log_rate,
+                    1 << (pp.num_vars - pp.num_rounds),
+                );
+                assert_eq!(basecode.poly.len() > 0, true);
+
+                basefold::evaluate_over_foldable_domain_2(
+                    pp.num_vars - pp.num_rounds + pp.log_rate,
+                    pp.log_rate,
+                    basecode,
+                    &pp.table,
+                )
+            } else {
+                basefold::evaluate_over_foldable_domain(pp.log_rate, poly, &pp.table)
+            }
+        })
+        .collect();
+
+    let codeword_trees = batch_merkelize(&codewords);
+}
+
+fn batch_merkelize<F: PrimeField, H: Hash>(vecs: &Vec<Type1Polynomial<F>>) -> Vec<Vec<Output<H>>> {
+    let temp: Vec<usize> = (0..vecs[0].poly.len()).collect();
+    let mut hashes: Vec<Output<H>> = (0..vecs[0].poly.len())
+        .collect::<Vec<usize>>()
+        .par_iter()
+        .map(|&j| {
+            let mut hasher = H::new();
+            (0..vecs.len()).for_each(|i| hasher.update_field_element(&(vecs[i]).poly[j]));
+            hasher.finalize_fixed()
+        })
+        .collect();
+
+    let mut merkle_tree = Vec::<Vec<Output<H>>>::new();
+    let depth = hashes.len().ilog2();
+
+    merkle_tree.push(hashes);
+    for i in 1..=depth {
+        hashes = merkle_tree[(i - 1) as usize]
+            .par_chunks_exact(2)
+            .map(|elems| {
+                let mut hasher = H::new();
+                hasher.update(&elems[0]);
+                hasher.update(&elems[1]);
+                hasher.finalize_fixed()
+            })
+            .collect();
+        merkle_tree.push(hashes);
+    }
+
+    merkle_tree
+}
+
 pub fn basefold_batch_open<F, H, S>(
     pp: &BasefoldProverParams<F>,
     polys: &mut Vec<Vec<F>>,
@@ -3761,7 +3836,7 @@ mod test {
 
     #[test]
     fn test_parity_check_matrix() {
-        let num_vars = 16;
+        let num_vars = 24;
 
         let batch_size = 1;
         let mut rng = ChaCha8Rng::from_entropy();
@@ -3811,22 +3886,32 @@ mod test {
 
     #[test]
     fn test_setup() {
-        for num_vars in 20..25 {
+        for num_vars in 23..25 {
             let batch_size = 1;
             let mut rng = ChaCha8Rng::from_entropy();
             let params = Pcs::setup(1 << num_vars, batch_size, rng).unwrap();
 
             println!("Number of variables: {}", num_vars);
             println!(
-                "Blow up in poly sizes: {}, {}",
-                (1 << num_vars) / 256,
-                params.basefold_poly_size
+                "Len of parity check matrix and its log = {} {}",
+                params.partity_check_matrix.row.len(),
+                params
+                    .partity_check_matrix
+                    .row
+                    .len()
+                    .next_power_of_two()
+                    .ilog2()
             );
-            println!(
-                "Blow up in num vars: {}, {}",
-                num_vars - 8,
-                params.basefold.num_vars
-            );
+            // println!(
+            //     "Blow up in poly sizes: {}, {}",
+            //     (1 << num_vars) / 256,
+            //     params.basefold_poly_size
+            // );
+            // println!(
+            //     "Blow up in num vars: {}, {}",
+            //     num_vars - 8,
+            //     params.basefold.num_vars
+            // );
         }
 
         // println!(

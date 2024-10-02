@@ -83,8 +83,8 @@ pub struct BasefoldProverParams<F: PrimeField> {
     pub table: Vec<Vec<F>>,
     pub num_verifier_queries: usize,
     pub num_vars: usize,
-    num_rounds: usize,
-    rs_basecode: bool,
+    pub num_rounds: usize,
+    pub rs_basecode: bool,
     pub rng: ChaCha8Rng,
 }
 
@@ -973,6 +973,37 @@ where
     }
 }
 
+fn batch_merkelize<F: PrimeField, H: Hash>(vecs: &Vec<Type1Polynomial<F>>) -> Vec<Vec<Output<H>>> {
+    let temp: Vec<usize> = (0..vecs[0].poly.len()).collect();
+    let mut hashes: Vec<Output<H>> = (0..vecs[0].poly.len())
+        .collect::<Vec<usize>>()
+        .par_iter()
+        .map(|&j| {
+            let mut hasher = H::new();
+            (0..vecs.len()).for_each(|i| hasher.update_field_element(&(vecs[i]).poly[j]));
+            hasher.finalize_fixed()
+        })
+        .collect();
+
+    let mut merkle_tree = Vec::<Vec<Output<H>>>::new();
+    let depth = hashes.len().ilog2();
+    merkle_tree.push(hashes);
+    for i in 1..=depth {
+        hashes = merkle_tree[(i - 1) as usize]
+            .par_chunks_exact(2)
+            .map(|elems| {
+                let mut hasher = H::new();
+                hasher.update(&elems[0]);
+                hasher.update(&elems[1]);
+                hasher.finalize_fixed()
+            })
+            .collect();
+        merkle_tree.push(hashes);
+    }
+
+    merkle_tree
+}
+
 #[test]
 fn time_rs_code() {
     use blake2::Blake2s256;
@@ -992,7 +1023,7 @@ fn time_rs_code() {
         64,
     );
 }
-fn encode_rs_basecode<F: PrimeField>(
+pub(super) fn encode_rs_basecode<F: PrimeField>(
     poly: &Type2Polynomial<F>,
     rate: usize,
     message_size: usize,
@@ -1110,7 +1141,7 @@ pub fn evaluate_over_foldable_domain<F: PrimeField>(
     }
 }
 
-pub fn evaluate_over_foldable_domain_2<F: PrimeField>(
+pub(super) fn evaluate_over_foldable_domain_2<F: PrimeField>(
     log_chunk_size: usize,
     log_rate: usize,
     mut coeffs: Type2Polynomial<F>,
