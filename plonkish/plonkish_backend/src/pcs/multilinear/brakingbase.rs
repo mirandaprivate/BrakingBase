@@ -2424,23 +2424,38 @@ pub fn second_sum_check_prover<F, H, S>(
     let f_2_inv = f_2.invert().unwrap();
     let f_3 = f_2 + F::ONE;
     for i in 0..sum_check_rounds {
-        let mut a_0 = F::ZERO;
-        let mut a_1 = F::ZERO;
-        let mut a_2 = F::ZERO;
-        let mut a_minus_one = F::ZERO;
-        for iter in 0..h_erow.len() / 2 {
-            a_0 += h_erow[iter] * h_ecol[iter] * h_val[iter];
-            a_1 += h_erow[iter + h_erow.len() / 2]
-                * h_ecol[iter + h_erow.len() / 2]
-                * h_val[iter + h_erow.len() / 2];
-            a_2 += (f_2 * h_erow[iter + h_erow.len() / 2] - h_erow[iter])
-                * (f_2 * h_ecol[iter + h_erow.len() / 2] - h_ecol[iter])
-                * (f_2 * h_val[iter + h_erow.len() / 2] - h_val[iter]);
+        let (a_0, a_1, a_2, a_minus_one) = (0..h_erow.len() / 2)
+            .into_par_iter()
+            .map(|iter| {
+                let iter2 = iter + h_erow.len() / 2;
+                let a_0 = h_erow[iter] * h_ecol[iter] * h_val[iter];
+                let a_1 = h_erow[iter2] * h_ecol[iter2] * h_val[iter2];
+                let a_2 = (f_2 * h_erow[iter2] - h_erow[iter])
+                    * (f_2 * h_ecol[iter2] - h_ecol[iter])
+                    * (f_2 * h_val[iter2] - h_val[iter]);
 
-            a_minus_one += (-h_erow[iter + h_erow.len() / 2] + f_2 * h_erow[iter])
-                * (-h_ecol[iter + h_erow.len() / 2] + f_2 * h_ecol[iter])
-                * (-h_val[iter + h_erow.len() / 2] + f_2 * h_val[iter]);
-        }
+                let a_minus_one = (-h_erow[iter2] + f_2 * h_erow[iter])
+                    * (-h_ecol[iter2] + f_2 * h_ecol[iter])
+                    * (-h_val[iter2] + f_2 * h_val[iter]);
+                (a_0, a_1, a_2, a_minus_one)
+            })
+            .reduce_with(|(acc0, acc1, acc2, acc3), (a_0, a_1, a_2, a_minus_one)| {
+                (acc0 + a_0, acc1 + a_1, acc2 + a_2, acc3 + a_minus_one)
+            })
+            .unwrap();
+        // for iter in 0..h_erow.len() / 2 {
+        //     a_0 += h_erow[iter] * h_ecol[iter] * h_val[iter];
+        //     a_1 += h_erow[iter + h_erow.len() / 2]
+        //         * h_ecol[iter + h_erow.len() / 2]
+        //         * h_val[iter + h_erow.len() / 2];
+        //     a_2 += (f_2 * h_erow[iter + h_erow.len() / 2] - h_erow[iter])
+        //         * (f_2 * h_ecol[iter + h_erow.len() / 2] - h_ecol[iter])
+        //         * (f_2 * h_val[iter + h_erow.len() / 2] - h_val[iter]);
+
+        //     a_minus_one += (-h_erow[iter + h_erow.len() / 2] + f_2 * h_erow[iter])
+        //         * (-h_ecol[iter + h_erow.len() / 2] + f_2 * h_ecol[iter])
+        //         * (-h_val[iter + h_erow.len() / 2] + f_2 * h_val[iter]);
+        // }
 
         //TODO (Bhargav): edit the following expression to derive the 4 coefficients
         let f_2 = F::ONE + F::ONE;
@@ -2461,9 +2476,10 @@ pub fn second_sum_check_prover<F, H, S>(
         second_sum_check_random_points[i] = r;
 
         for i in 0..h_erow.len() / 2 {
-            h_erow[i] = (F::ONE - r) * h_erow[i] + r * h_erow[i + h_erow.len() / 2];
-            h_ecol[i] = (F::ONE - r) * h_ecol[i] + r * h_ecol[i + h_ecol.len() / 2];
-            h_val[i] = (F::ONE - r) * h_val[i] + r * h_val[i + h_val.len() / 2];
+            let one_minus_r = (F::ONE - r);
+            h_erow[i] = one_minus_r * h_erow[i] + r * h_erow[i + h_erow.len() / 2];
+            h_ecol[i] = one_minus_r * h_ecol[i] + r * h_ecol[i + h_ecol.len() / 2];
+            h_val[i] = one_minus_r * h_val[i] + r * h_val[i + h_val.len() / 2];
         }
         h_erow.resize(h_erow.len() / 2, F::ZERO);
         h_ecol.resize(h_ecol.len() / 2, F::ZERO);
@@ -2503,104 +2519,270 @@ pub fn quarks_sum_check_prover<F, H, S>(
         let f_2_inv = f_2.invert().unwrap();
         let f_3 = f_2 + F::ONE;
 
-        let mut circuit1_at_zero = F::ZERO;
-        let mut circuit1_at_one = F::ZERO;
-        let mut circuit1_at_two = F::ZERO;
-        let mut circuit1_at_minus_one = F::ZERO;
+        // let mut circuit1_at_zero = F::ZERO;
+        // let mut circuit1_at_one = F::ZERO;
+        // let mut circuit1_at_two = F::ZERO;
+        // let mut circuit1_at_minus_one = F::ZERO;
 
-        let mut circuit2_at_zero = F::ZERO;
-        let mut circuit2_at_one = F::ZERO;
-        let mut circuit2_at_two = F::ZERO;
-        let mut circuit2_at_minus_one = F::ZERO;
+        // let mut circuit2_at_zero = F::ZERO;
+        // let mut circuit2_at_one = F::ZERO;
+        // let mut circuit2_at_two = F::ZERO;
+        // let mut circuit2_at_minus_one = F::ZERO;
 
-        let mut circuit3_at_zero = F::ZERO;
-        let mut circuit3_at_one = F::ZERO;
-        let mut circuit3_at_two = F::ZERO;
-        let mut circuit3_at_minus_one = F::ZERO;
+        // let mut circuit3_at_zero = F::ZERO;
+        // let mut circuit3_at_one = F::ZERO;
+        // let mut circuit3_at_two = F::ZERO;
+        // let mut circuit3_at_minus_one = F::ZERO;
 
-        let mut circuit4_at_zero = F::ZERO;
-        let mut circuit4_at_one = F::ZERO;
-        let mut circuit4_at_two = F::ZERO;
-        let mut circuit4_at_minus_one = F::ZERO;
+        // let mut circuit4_at_zero = F::ZERO;
+        // let mut circuit4_at_one = F::ZERO;
+        // let mut circuit4_at_two = F::ZERO;
+        // let mut circuit4_at_minus_one = F::ZERO;
+        let (
+            circuit1_at_zero,
+            circuit2_at_zero,
+            circuit3_at_zero,
+            circuit4_at_zero,
+            circuit1_at_one,
+            circuit2_at_one,
+            circuit3_at_one,
+            circuit4_at_one,
+            circuit1_at_two,
+            circuit2_at_two,
+            circuit3_at_two,
+            circuit4_at_two,
+            circuit1_at_minus_one,
+            circuit2_at_minus_one,
+            circuit3_at_minus_one,
+            circuit4_at_minus_one,
+        ) = (0..circuit_11.len() / 2)
+            .into_par_iter()
+            .map(|iter| {
+                let iter2 = iter + circuit_11.len() / 2;
+                ////Circuit computations at zero
+                let circuit1_at_zero = eq_random[iter]
+                    * (circuit_11[iter] - circuit_1_even[iter] * circuit_1_odd[iter]);
+                let circuit2_at_zero = eq_random[iter]
+                    * (circuit_21[iter] - circuit_2_even[iter] * circuit_2_odd[iter]);
+                let circuit3_at_zero = eq_random[iter]
+                    * (circuit_31[iter] - circuit_3_even[iter] * circuit_3_odd[iter]);
+                let circuit4_at_zero = eq_random[iter]
+                    * (circuit_41[iter] - circuit_4_even[iter] * circuit_4_odd[iter]);
 
-        for iter in 0..circuit_11.len() / 2 {
-            ////Circuit computations at zero
-            circuit1_at_zero +=
-                eq_random[iter] * (circuit_11[iter] - circuit_1_even[iter] * circuit_1_odd[iter]);
-            circuit2_at_zero +=
-                eq_random[iter] * (circuit_21[iter] - circuit_2_even[iter] * circuit_2_odd[iter]);
-            circuit3_at_zero +=
-                eq_random[iter] * (circuit_31[iter] - circuit_3_even[iter] * circuit_3_odd[iter]);
-            circuit4_at_zero +=
-                eq_random[iter] * (circuit_41[iter] - circuit_4_even[iter] * circuit_4_odd[iter]);
+                ////Circuit computations at one
+                let circuit1_at_one = eq_random[iter2]
+                    * (circuit_11[iter2] - circuit_1_even[iter2] * circuit_1_odd[iter2]);
+                let circuit2_at_one = eq_random[iter2]
+                    * (circuit_21[iter2] - circuit_2_even[iter2] * circuit_2_odd[iter2]);
+                let circuit3_at_one = eq_random[iter2]
+                    * (circuit_31[iter2] - circuit_3_even[iter2] * circuit_3_odd[iter2]);
+                let circuit4_at_one = eq_random[iter2]
+                    * (circuit_41[iter2] - circuit_4_even[iter2] * circuit_4_odd[iter2]);
 
-            ////Circuit computations at one
-            circuit1_at_one += eq_random[iter + circuit_11.len() / 2]
-                * (circuit_11[iter + circuit_11.len() / 2]
-                    - circuit_1_even[iter + circuit_11.len() / 2]
-                        * circuit_1_odd[iter + circuit_11.len() / 2]);
-            circuit2_at_one += eq_random[iter + circuit_11.len() / 2]
-                * (circuit_21[iter + circuit_11.len() / 2]
-                    - circuit_2_even[iter + circuit_11.len() / 2]
-                        * circuit_2_odd[iter + circuit_11.len() / 2]);
-            circuit3_at_one += eq_random[iter + circuit_11.len() / 2]
-                * (circuit_31[iter + circuit_11.len() / 2]
-                    - circuit_3_even[iter + circuit_11.len() / 2]
-                        * circuit_3_odd[iter + circuit_11.len() / 2]);
-            circuit4_at_one += eq_random[iter + circuit_11.len() / 2]
-                * (circuit_41[iter + circuit_11.len() / 2]
-                    - circuit_4_even[iter + circuit_11.len() / 2]
-                        * circuit_4_odd[iter + circuit_11.len() / 2]);
+                ////Circuit computations at two
 
-            ////Circuit computations at two
+                let val4 = f_2 * eq_random[iter2] - eq_random[iter];
 
-            let val4 = f_2 * eq_random[iter + circuit_11.len() / 2] - eq_random[iter];
+                let val1 = f_2 * circuit_11[iter2] - circuit_11[iter];
+                let val2 = f_2 * circuit_1_even[iter2] - circuit_1_even[iter];
+                let val3 = f_2 * circuit_1_odd[iter2] - circuit_1_odd[iter];
 
-            let val1 = f_2 * circuit_11[iter + circuit_11.len() / 2] - circuit_11[iter];
-            let val2 = f_2 * circuit_1_even[iter + circuit_11.len() / 2] - circuit_1_even[iter];
-            let val3 = f_2 * circuit_1_odd[iter + circuit_11.len() / 2] - circuit_1_odd[iter];
+                let circuit1_at_two = val4 * (val1 - val2 * val3);
 
-            circuit1_at_two += val4 * (val1 - val2 * val3);
+                let val1 = f_2 * circuit_21[iter2] - circuit_21[iter];
+                let val2 = f_2 * circuit_2_even[iter2] - circuit_2_even[iter];
+                let val3 = f_2 * circuit_2_odd[iter2] - circuit_2_odd[iter];
+                let circuit2_at_two = val4 * (val1 - val2 * val3);
 
-            let val1 = f_2 * circuit_21[iter + circuit_11.len() / 2] - circuit_21[iter];
-            let val2 = f_2 * circuit_2_even[iter + circuit_11.len() / 2] - circuit_2_even[iter];
-            let val3 = f_2 * circuit_2_odd[iter + circuit_11.len() / 2] - circuit_2_odd[iter];
-            circuit2_at_two += val4 * (val1 - val2 * val3);
+                let val1 = f_2 * circuit_31[iter2] - circuit_31[iter];
+                let val2 = f_2 * circuit_3_even[iter2] - circuit_3_even[iter];
+                let val3 = f_2 * circuit_3_odd[iter2] - circuit_3_odd[iter];
+                let circuit3_at_two = val4 * (val1 - val2 * val3);
 
-            let val1 = f_2 * circuit_31[iter + circuit_11.len() / 2] - circuit_31[iter];
-            let val2 = f_2 * circuit_3_even[iter + circuit_11.len() / 2] - circuit_3_even[iter];
-            let val3 = f_2 * circuit_3_odd[iter + circuit_11.len() / 2] - circuit_3_odd[iter];
-            circuit3_at_two += val4 * (val1 - val2 * val3);
+                let val1 = f_2 * circuit_41[iter2] - circuit_41[iter];
+                let val2 = f_2 * circuit_4_even[iter2] - circuit_4_even[iter];
+                let val3 = f_2 * circuit_4_odd[iter2] - circuit_4_odd[iter];
+                let circuit4_at_two = val4 * (val1 - val2 * val3);
 
-            let val1 = f_2 * circuit_41[iter + circuit_11.len() / 2] - circuit_41[iter];
-            let val2 = f_2 * circuit_4_even[iter + circuit_11.len() / 2] - circuit_4_even[iter];
-            let val3 = f_2 * circuit_4_odd[iter + circuit_11.len() / 2] - circuit_4_odd[iter];
-            circuit4_at_two += val4 * (val1 - val2 * val3);
+                ////Circuit computations at minus_one
 
-            ////Circuit computations at minus_one
+                let val4 = -eq_random[iter2] + f_2 * eq_random[iter];
 
-            let val4 = -eq_random[iter + circuit_11.len() / 2] + f_2 * eq_random[iter];
+                let val1 = -circuit_11[iter2] + f_2 * circuit_11[iter];
+                let val2 = -circuit_1_even[iter2] + f_2 * circuit_1_even[iter];
+                let val3 = -circuit_1_odd[iter2] + f_2 * circuit_1_odd[iter];
+                let circuit1_at_minus_one = val4 * (val1 - val2 * val3);
 
-            let val1 = -circuit_11[iter + circuit_11.len() / 2] + f_2 * circuit_11[iter];
-            let val2 = -circuit_1_even[iter + circuit_11.len() / 2] + f_2 * circuit_1_even[iter];
-            let val3 = -circuit_1_odd[iter + circuit_11.len() / 2] + f_2 * circuit_1_odd[iter];
-            circuit1_at_minus_one += val4 * (val1 - val2 * val3);
+                let val1 = -circuit_21[iter2] + f_2 * circuit_21[iter];
+                let val2 = -circuit_2_even[iter2] + f_2 * circuit_2_even[iter];
+                let val3 = -circuit_2_odd[iter2] + f_2 * circuit_2_odd[iter];
+                let circuit2_at_minus_one = val4 * (val1 - val2 * val3);
 
-            let val1 = -circuit_21[iter + circuit_11.len() / 2] + f_2 * circuit_21[iter];
-            let val2 = -circuit_2_even[iter + circuit_11.len() / 2] + f_2 * circuit_2_even[iter];
-            let val3 = -circuit_2_odd[iter + circuit_11.len() / 2] + f_2 * circuit_2_odd[iter];
-            circuit2_at_minus_one += val4 * (val1 - val2 * val3);
+                let val1 = -circuit_31[iter2] + f_2 * circuit_31[iter];
+                let val2 = -circuit_3_even[iter2] + f_2 * circuit_3_even[iter];
+                let val3 = -circuit_3_odd[iter2] + f_2 * circuit_3_odd[iter];
+                let circuit3_at_minus_one = val4 * (val1 - val2 * val3);
 
-            let val1 = -circuit_31[iter + circuit_11.len() / 2] + f_2 * circuit_31[iter];
-            let val2 = -circuit_3_even[iter + circuit_11.len() / 2] + f_2 * circuit_3_even[iter];
-            let val3 = -circuit_3_odd[iter + circuit_11.len() / 2] + f_2 * circuit_3_odd[iter];
-            circuit3_at_minus_one += val4 * (val1 - val2 * val3);
+                let val1 = -circuit_41[iter2] + f_2 * circuit_41[iter];
+                let val2 = -circuit_4_even[iter2] + f_2 * circuit_4_even[iter];
+                let val3 = -circuit_4_odd[iter2] + f_2 * circuit_4_odd[iter];
+                let circuit4_at_minus_one = val4 * (val1 - val2 * val3);
+                (
+                    circuit1_at_zero,
+                    circuit2_at_zero,
+                    circuit3_at_zero,
+                    circuit4_at_zero,
+                    circuit1_at_one,
+                    circuit2_at_one,
+                    circuit3_at_one,
+                    circuit4_at_one,
+                    circuit1_at_two,
+                    circuit2_at_two,
+                    circuit3_at_two,
+                    circuit4_at_two,
+                    circuit1_at_minus_one,
+                    circuit2_at_minus_one,
+                    circuit3_at_minus_one,
+                    circuit4_at_minus_one,
+                )
+            })
+            .reduce_with(
+                |(
+                    acc0,
+                    acc1,
+                    acc2,
+                    acc3,
+                    acc4,
+                    acc5,
+                    acc6,
+                    acc7,
+                    acc8,
+                    acc9,
+                    acc10,
+                    acc11,
+                    acc12,
+                    acc13,
+                    acc14,
+                    acc15,
+                ),
+                 (
+                    circuit1_at_zero,
+                    circuit2_at_zero,
+                    circuit3_at_zero,
+                    circuit4_at_zero,
+                    circuit1_at_one,
+                    circuit2_at_one,
+                    circuit3_at_one,
+                    circuit4_at_one,
+                    circuit1_at_two,
+                    circuit2_at_two,
+                    circuit3_at_two,
+                    circuit4_at_two,
+                    circuit1_at_minus_one,
+                    circuit2_at_minus_one,
+                    circuit3_at_minus_one,
+                    circuit4_at_minus_one,
+                )| {
+                    (
+                        acc0 + circuit1_at_zero,
+                        acc1 + circuit2_at_zero,
+                        acc2 + circuit3_at_zero,
+                        acc3 + circuit4_at_zero,
+                        acc4 + circuit1_at_one,
+                        acc5 + circuit2_at_one,
+                        acc6 + circuit3_at_one,
+                        acc7 + circuit4_at_one,
+                        acc8 + circuit1_at_two,
+                        acc9 + circuit2_at_two,
+                        acc10 + circuit3_at_two,
+                        acc11 + circuit4_at_two,
+                        acc12 + circuit1_at_minus_one,
+                        acc13 + circuit2_at_minus_one,
+                        acc14 + circuit3_at_minus_one,
+                        acc15 + circuit4_at_minus_one,
+                    )
+                },
+            )
+            .unwrap();
 
-            let val1 = -circuit_41[iter + circuit_11.len() / 2] + f_2 * circuit_41[iter];
-            let val2 = -circuit_4_even[iter + circuit_11.len() / 2] + f_2 * circuit_4_even[iter];
-            let val3 = -circuit_4_odd[iter + circuit_11.len() / 2] + f_2 * circuit_4_odd[iter];
-            circuit4_at_minus_one += val4 * (val1 - val2 * val3);
-        }
+        // for iter in 0..circuit_11.len() / 2 {
+        //     ////Circuit computations at zero
+        //     circuit1_at_zero +=
+        //         eq_random[iter] * (circuit_11[iter] - circuit_1_even[iter] * circuit_1_odd[iter]);
+        //     circuit2_at_zero +=
+        //         eq_random[iter] * (circuit_21[iter] - circuit_2_even[iter] * circuit_2_odd[iter]);
+        //     circuit3_at_zero +=
+        //         eq_random[iter] * (circuit_31[iter] - circuit_3_even[iter] * circuit_3_odd[iter]);
+        //     circuit4_at_zero +=
+        //         eq_random[iter] * (circuit_41[iter] - circuit_4_even[iter] * circuit_4_odd[iter]);
+
+        //     ////Circuit computations at one
+        //     circuit1_at_one += eq_random[iter + circuit_11.len() / 2]
+        //         * (circuit_11[iter + circuit_11.len() / 2]
+        //             - circuit_1_even[iter + circuit_11.len() / 2]
+        //                 * circuit_1_odd[iter + circuit_11.len() / 2]);
+        //     circuit2_at_one += eq_random[iter + circuit_11.len() / 2]
+        //         * (circuit_21[iter + circuit_11.len() / 2]
+        //             - circuit_2_even[iter + circuit_11.len() / 2]
+        //                 * circuit_2_odd[iter + circuit_11.len() / 2]);
+        //     circuit3_at_one += eq_random[iter + circuit_11.len() / 2]
+        //         * (circuit_31[iter + circuit_11.len() / 2]
+        //             - circuit_3_even[iter + circuit_11.len() / 2]
+        //                 * circuit_3_odd[iter + circuit_11.len() / 2]);
+        //     circuit4_at_one += eq_random[iter + circuit_11.len() / 2]
+        //         * (circuit_41[iter + circuit_11.len() / 2]
+        //             - circuit_4_even[iter + circuit_11.len() / 2]
+        //                 * circuit_4_odd[iter + circuit_11.len() / 2]);
+
+        //     ////Circuit computations at two
+
+        //     let val4 = f_2 * eq_random[iter + circuit_11.len() / 2] - eq_random[iter];
+
+        //     let val1 = f_2 * circuit_11[iter + circuit_11.len() / 2] - circuit_11[iter];
+        //     let val2 = f_2 * circuit_1_even[iter + circuit_11.len() / 2] - circuit_1_even[iter];
+        //     let val3 = f_2 * circuit_1_odd[iter + circuit_11.len() / 2] - circuit_1_odd[iter];
+
+        //     circuit1_at_two += val4 * (val1 - val2 * val3);
+
+        //     let val1 = f_2 * circuit_21[iter + circuit_11.len() / 2] - circuit_21[iter];
+        //     let val2 = f_2 * circuit_2_even[iter + circuit_11.len() / 2] - circuit_2_even[iter];
+        //     let val3 = f_2 * circuit_2_odd[iter + circuit_11.len() / 2] - circuit_2_odd[iter];
+        //     circuit2_at_two += val4 * (val1 - val2 * val3);
+
+        //     let val1 = f_2 * circuit_31[iter + circuit_11.len() / 2] - circuit_31[iter];
+        //     let val2 = f_2 * circuit_3_even[iter + circuit_11.len() / 2] - circuit_3_even[iter];
+        //     let val3 = f_2 * circuit_3_odd[iter + circuit_11.len() / 2] - circuit_3_odd[iter];
+        //     circuit3_at_two += val4 * (val1 - val2 * val3);
+
+        //     let val1 = f_2 * circuit_41[iter + circuit_11.len() / 2] - circuit_41[iter];
+        //     let val2 = f_2 * circuit_4_even[iter + circuit_11.len() / 2] - circuit_4_even[iter];
+        //     let val3 = f_2 * circuit_4_odd[iter + circuit_11.len() / 2] - circuit_4_odd[iter];
+        //     circuit4_at_two += val4 * (val1 - val2 * val3);
+
+        //     ////Circuit computations at minus_one
+
+        //     let val4 = -eq_random[iter + circuit_11.len() / 2] + f_2 * eq_random[iter];
+
+        //     let val1 = -circuit_11[iter + circuit_11.len() / 2] + f_2 * circuit_11[iter];
+        //     let val2 = -circuit_1_even[iter + circuit_11.len() / 2] + f_2 * circuit_1_even[iter];
+        //     let val3 = -circuit_1_odd[iter + circuit_11.len() / 2] + f_2 * circuit_1_odd[iter];
+        //     circuit1_at_minus_one += val4 * (val1 - val2 * val3);
+
+        //     let val1 = -circuit_21[iter + circuit_11.len() / 2] + f_2 * circuit_21[iter];
+        //     let val2 = -circuit_2_even[iter + circuit_11.len() / 2] + f_2 * circuit_2_even[iter];
+        //     let val3 = -circuit_2_odd[iter + circuit_11.len() / 2] + f_2 * circuit_2_odd[iter];
+        //     circuit2_at_minus_one += val4 * (val1 - val2 * val3);
+
+        //     let val1 = -circuit_31[iter + circuit_11.len() / 2] + f_2 * circuit_31[iter];
+        //     let val2 = -circuit_3_even[iter + circuit_11.len() / 2] + f_2 * circuit_3_even[iter];
+        //     let val3 = -circuit_3_odd[iter + circuit_11.len() / 2] + f_2 * circuit_3_odd[iter];
+        //     circuit3_at_minus_one += val4 * (val1 - val2 * val3);
+
+        //     let val1 = -circuit_41[iter + circuit_11.len() / 2] + f_2 * circuit_41[iter];
+        //     let val2 = -circuit_4_even[iter + circuit_11.len() / 2] + f_2 * circuit_4_even[iter];
+        //     let val3 = -circuit_4_odd[iter + circuit_11.len() / 2] + f_2 * circuit_4_odd[iter];
+        //     circuit4_at_minus_one += val4 * (val1 - val2 * val3);
+        // }
 
         let a_0 = quarks_random_combiner[0] * circuit1_at_zero
             + quarks_random_combiner[1] * circuit2_at_zero
