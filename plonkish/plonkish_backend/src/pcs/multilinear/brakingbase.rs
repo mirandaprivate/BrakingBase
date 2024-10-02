@@ -2335,12 +2335,6 @@ pub fn first_sum_check_prover<F, H, S>(
     let f_2_inv = f_2.invert().unwrap();
     let f_3 = f_2 + F::ONE;
     for i in 0..sum_check_rounds {
-        // let mut a1_0 = F::ZERO;
-        // let mut a1_1 = F::ZERO;
-        // let mut a1_2 = F::ZERO;
-        // let mut a2_0 = F::ZERO;
-        // let mut a2_1 = F::ZERO;
-        // let mut a2_2 = F::ZERO;
         // println!("The length of mask is {:?}", mask.len());
         let (a1_0, a1_1, a1_2, a2_0, a2_1, a2_2) = (0..mask.len() / 2)
             .into_par_iter()
@@ -2368,36 +2362,6 @@ pub fn first_sum_check_prover<F, H, S>(
                 },
             )
             .unwrap();
-
-        // for iter in 0..mask.len() / 2 {
-        //     a1_0 += mask[iter] * p_p_prime[iter];
-        //     a1_1 += mask[iter + mask.len() / 2] * p_p_prime[iter + mask.len() / 2];
-        //     a1_2 += (f_2 * mask[iter + mask.len() / 2] - mask[iter])
-        //         * (f_2 * p_p_prime[iter + mask.len() / 2] - p_p_prime[iter]);
-        // }
-
-        // let mut a2_0 = F::ZERO;
-        // let mut a2_1 = F::ZERO;
-        // let mut a2_2 = F::ZERO;
-
-        // for iter in 0..mask.len() / 2 {
-        //     a2_0 += h[iter] * p_p_prime[iter];
-        //     a2_1 += h[iter + mask.len() / 2] * p_p_prime[iter + mask.len() / 2];
-        //     a2_2 += (f_2 * h[iter + mask.len() / 2] - h[iter])
-        //         * (f_2 * p_p_prime[iter + mask.len() / 2] - p_p_prime[iter]);
-        // }
-
-        // let mask_at_zero: F = mask[0..mask.len() / 2].iter().sum();
-        // let mask_at_one: F = mask[mask.len() / 2..].iter().sum();
-        // let mask_at_two = f_2 * mask_at_one - mask_at_zero;
-
-        // let p_p_prime_at_zero: F = p_p_prime[0..p_p_prime.len() / 2].iter().sum();
-        // let p_p_prime_at_one: F = p_p_prime[p_p_prime.len() / 2..].iter().sum();
-        // let p_p_prime_at_two = f_2 * p_p_prime_at_one - p_p_prime_at_zero;
-
-        // let h_at_zero: F = h[0..h.len() / 2].iter().sum();
-        // let h_at_one: F = h[h.len() / 2..].iter().sum();
-        // let h_at_two = f_2 * h_at_one - h_at_zero;
 
         let a_0 = random_combiners[0] * a1_0 + random_combiners[1] * a2_0;
         let a_1 = random_combiners[0] * a1_1 + random_combiners[1] * a2_1;
@@ -2475,19 +2439,6 @@ pub fn second_sum_check_prover<F, H, S>(
                 (acc0 + a_0, acc1 + a_1, acc2 + a_2, acc3 + a_minus_one)
             })
             .unwrap();
-        // for iter in 0..h_erow.len() / 2 {
-        //     a_0 += h_erow[iter] * h_ecol[iter] * h_val[iter];
-        //     a_1 += h_erow[iter + h_erow.len() / 2]
-        //         * h_ecol[iter + h_erow.len() / 2]
-        //         * h_val[iter + h_erow.len() / 2];
-        //     a_2 += (f_2 * h_erow[iter + h_erow.len() / 2] - h_erow[iter])
-        //         * (f_2 * h_ecol[iter + h_erow.len() / 2] - h_ecol[iter])
-        //         * (f_2 * h_val[iter + h_erow.len() / 2] - h_val[iter]);
-
-        //     a_minus_one += (-h_erow[iter + h_erow.len() / 2] + f_2 * h_erow[iter])
-        //         * (-h_ecol[iter + h_erow.len() / 2] + f_2 * h_ecol[iter])
-        //         * (-h_val[iter + h_erow.len() / 2] + f_2 * h_val[iter]);
-        // }
 
         //TODO (Bhargav): edit the following expression to derive the 4 coefficients
         let f_2 = F::ONE + F::ONE;
@@ -2551,25 +2502,6 @@ pub fn quarks_sum_check_prover<F, H, S>(
         let f_2_inv = f_2.invert().unwrap();
         let f_3 = f_2 + F::ONE;
 
-        // let mut circuit1_at_zero = F::ZERO;
-        // let mut circuit1_at_one = F::ZERO;
-        // let mut circuit1_at_two = F::ZERO;
-        // let mut circuit1_at_minus_one = F::ZERO;
-
-        // let mut circuit2_at_zero = F::ZERO;
-        // let mut circuit2_at_one = F::ZERO;
-        // let mut circuit2_at_two = F::ZERO;
-        // let mut circuit2_at_minus_one = F::ZERO;
-
-        // let mut circuit3_at_zero = F::ZERO;
-        // let mut circuit3_at_one = F::ZERO;
-        // let mut circuit3_at_two = F::ZERO;
-        // let mut circuit3_at_minus_one = F::ZERO;
-
-        // let mut circuit4_at_zero = F::ZERO;
-        // let mut circuit4_at_one = F::ZERO;
-        // let mut circuit4_at_two = F::ZERO;
-        // let mut circuit4_at_minus_one = F::ZERO;
         let (
             circuit1_at_zero,
             circuit2_at_zero,
@@ -2737,85 +2669,6 @@ pub fn quarks_sum_check_prover<F, H, S>(
             )
             .unwrap();
 
-        // for iter in 0..circuit_11.len() / 2 {
-        //     ////Circuit computations at zero
-        //     circuit1_at_zero +=
-        //         eq_random[iter] * (circuit_11[iter] - circuit_1_even[iter] * circuit_1_odd[iter]);
-        //     circuit2_at_zero +=
-        //         eq_random[iter] * (circuit_21[iter] - circuit_2_even[iter] * circuit_2_odd[iter]);
-        //     circuit3_at_zero +=
-        //         eq_random[iter] * (circuit_31[iter] - circuit_3_even[iter] * circuit_3_odd[iter]);
-        //     circuit4_at_zero +=
-        //         eq_random[iter] * (circuit_41[iter] - circuit_4_even[iter] * circuit_4_odd[iter]);
-
-        //     ////Circuit computations at one
-        //     circuit1_at_one += eq_random[iter + circuit_11.len() / 2]
-        //         * (circuit_11[iter + circuit_11.len() / 2]
-        //             - circuit_1_even[iter + circuit_11.len() / 2]
-        //                 * circuit_1_odd[iter + circuit_11.len() / 2]);
-        //     circuit2_at_one += eq_random[iter + circuit_11.len() / 2]
-        //         * (circuit_21[iter + circuit_11.len() / 2]
-        //             - circuit_2_even[iter + circuit_11.len() / 2]
-        //                 * circuit_2_odd[iter + circuit_11.len() / 2]);
-        //     circuit3_at_one += eq_random[iter + circuit_11.len() / 2]
-        //         * (circuit_31[iter + circuit_11.len() / 2]
-        //             - circuit_3_even[iter + circuit_11.len() / 2]
-        //                 * circuit_3_odd[iter + circuit_11.len() / 2]);
-        //     circuit4_at_one += eq_random[iter + circuit_11.len() / 2]
-        //         * (circuit_41[iter + circuit_11.len() / 2]
-        //             - circuit_4_even[iter + circuit_11.len() / 2]
-        //                 * circuit_4_odd[iter + circuit_11.len() / 2]);
-
-        //     ////Circuit computations at two
-
-        //     let val4 = f_2 * eq_random[iter + circuit_11.len() / 2] - eq_random[iter];
-
-        //     let val1 = f_2 * circuit_11[iter + circuit_11.len() / 2] - circuit_11[iter];
-        //     let val2 = f_2 * circuit_1_even[iter + circuit_11.len() / 2] - circuit_1_even[iter];
-        //     let val3 = f_2 * circuit_1_odd[iter + circuit_11.len() / 2] - circuit_1_odd[iter];
-
-        //     circuit1_at_two += val4 * (val1 - val2 * val3);
-
-        //     let val1 = f_2 * circuit_21[iter + circuit_11.len() / 2] - circuit_21[iter];
-        //     let val2 = f_2 * circuit_2_even[iter + circuit_11.len() / 2] - circuit_2_even[iter];
-        //     let val3 = f_2 * circuit_2_odd[iter + circuit_11.len() / 2] - circuit_2_odd[iter];
-        //     circuit2_at_two += val4 * (val1 - val2 * val3);
-
-        //     let val1 = f_2 * circuit_31[iter + circuit_11.len() / 2] - circuit_31[iter];
-        //     let val2 = f_2 * circuit_3_even[iter + circuit_11.len() / 2] - circuit_3_even[iter];
-        //     let val3 = f_2 * circuit_3_odd[iter + circuit_11.len() / 2] - circuit_3_odd[iter];
-        //     circuit3_at_two += val4 * (val1 - val2 * val3);
-
-        //     let val1 = f_2 * circuit_41[iter + circuit_11.len() / 2] - circuit_41[iter];
-        //     let val2 = f_2 * circuit_4_even[iter + circuit_11.len() / 2] - circuit_4_even[iter];
-        //     let val3 = f_2 * circuit_4_odd[iter + circuit_11.len() / 2] - circuit_4_odd[iter];
-        //     circuit4_at_two += val4 * (val1 - val2 * val3);
-
-        //     ////Circuit computations at minus_one
-
-        //     let val4 = -eq_random[iter + circuit_11.len() / 2] + f_2 * eq_random[iter];
-
-        //     let val1 = -circuit_11[iter + circuit_11.len() / 2] + f_2 * circuit_11[iter];
-        //     let val2 = -circuit_1_even[iter + circuit_11.len() / 2] + f_2 * circuit_1_even[iter];
-        //     let val3 = -circuit_1_odd[iter + circuit_11.len() / 2] + f_2 * circuit_1_odd[iter];
-        //     circuit1_at_minus_one += val4 * (val1 - val2 * val3);
-
-        //     let val1 = -circuit_21[iter + circuit_11.len() / 2] + f_2 * circuit_21[iter];
-        //     let val2 = -circuit_2_even[iter + circuit_11.len() / 2] + f_2 * circuit_2_even[iter];
-        //     let val3 = -circuit_2_odd[iter + circuit_11.len() / 2] + f_2 * circuit_2_odd[iter];
-        //     circuit2_at_minus_one += val4 * (val1 - val2 * val3);
-
-        //     let val1 = -circuit_31[iter + circuit_11.len() / 2] + f_2 * circuit_31[iter];
-        //     let val2 = -circuit_3_even[iter + circuit_11.len() / 2] + f_2 * circuit_3_even[iter];
-        //     let val3 = -circuit_3_odd[iter + circuit_11.len() / 2] + f_2 * circuit_3_odd[iter];
-        //     circuit3_at_minus_one += val4 * (val1 - val2 * val3);
-
-        //     let val1 = -circuit_41[iter + circuit_11.len() / 2] + f_2 * circuit_41[iter];
-        //     let val2 = -circuit_4_even[iter + circuit_11.len() / 2] + f_2 * circuit_4_even[iter];
-        //     let val3 = -circuit_4_odd[iter + circuit_11.len() / 2] + f_2 * circuit_4_odd[iter];
-        //     circuit4_at_minus_one += val4 * (val1 - val2 * val3);
-        // }
-
         let a_0 = quarks_random_combiner[0] * circuit1_at_zero
             + quarks_random_combiner[1] * circuit2_at_zero
             + quarks_random_combiner[2] * circuit3_at_zero
@@ -2946,10 +2799,6 @@ pub fn batch_evaluate_sum_check<F, H, S>(
     let f_2_inv = f_2.invert().unwrap();
     let f_3 = f_2 + F::ONE;
     for i in 0..sum_check_rounds {
-        // let mut value_at_0 = F::ZERO;
-        // let mut value_at_1 = F::ZERO;
-        // let mut value_at_2 = F::ZERO;
-        // println!("The length of mask is {:?}", mask.len());
         let (value_at_0, value_at_1, value_at_2) = (0..eq_p_prime_eval1.len() / 2)
             .into_par_iter()
             .map(|iter| {
@@ -3106,181 +2955,6 @@ pub fn batch_evaluate_sum_check<F, H, S>(
                 (acc0 + value_at_0, acc1 + value_at_1, acc2 + value_at_2)
             })
             .unwrap();
-        // for iter in 0..eq_p_prime_eval1.len() / 2 {
-        //     value_at_0 += (eq_p_prime_eval1[iter] * batch_sum_check_random_combiner[0]
-        //         + eq_p_prime_eval2[iter] * batch_sum_check_random_combiner[1]
-        //         + eq_p_prime_eval3[iter] * batch_sum_check_random_combiner[16])
-        //         * p_p_prime[iter];
-
-        //     value_at_1 += (eq_p_prime_eval1[iter + eq_p_prime_eval1.len() / 2]
-        //         * batch_sum_check_random_combiner[0]
-        //         + eq_p_prime_eval2[iter + eq_p_prime_eval1.len() / 2]
-        //             * batch_sum_check_random_combiner[1]
-        //         + eq_p_prime_eval3[iter + eq_p_prime_eval1.len() / 2]
-        //             * batch_sum_check_random_combiner[16])
-        //         * p_p_prime[iter + eq_p_prime_eval1.len() / 2];
-
-        //     let eq_p_prime_eval1_at_two =
-        //         f_2 * eq_p_prime_eval1[iter + eq_p_prime_eval1.len() / 2] - eq_p_prime_eval1[iter];
-        //     let eq_p_prime_eval2_at_two =
-        //         f_2 * eq_p_prime_eval2[iter + eq_p_prime_eval1.len() / 2] - eq_p_prime_eval2[iter];
-        //     let eq_p_prime_eval3_at_two =
-        //         f_2 * eq_p_prime_eval3[iter + eq_p_prime_eval1.len() / 2] - eq_p_prime_eval3[iter];
-        //     let p_p_prime_at_two =
-        //         f_2 * p_p_prime[iter + eq_p_prime_eval1.len() / 2] - p_p_prime[iter];
-        //     value_at_2 += (eq_p_prime_eval1_at_two * batch_sum_check_random_combiner[0]
-        //         + eq_p_prime_eval2_at_two * batch_sum_check_random_combiner[1]
-        //         + eq_p_prime_eval3_at_two * batch_sum_check_random_combiner[16])
-        //         * p_p_prime_at_two;
-
-        //     //----------
-        //     value_at_0 += (eq_h_erow_ecol_eval1[iter] * batch_sum_check_random_combiner[2]
-        //         + eq_circuit_eval_point[iter] * batch_sum_check_random_combiner[3])
-        //         * h_erow_ecol[iter];
-
-        //     value_at_1 += (eq_h_erow_ecol_eval1[iter + eq_p_prime_eval1.len() / 2]
-        //         * batch_sum_check_random_combiner[2]
-        //         + eq_circuit_eval_point[iter + eq_p_prime_eval1.len() / 2]
-        //             * batch_sum_check_random_combiner[3])
-        //         * h_erow_ecol[iter + eq_p_prime_eval1.len() / 2];
-
-        //     let eq_h_erow_ecol_at_two = f_2
-        //         * eq_h_erow_ecol_eval1[iter + eq_p_prime_eval1.len() / 2]
-        //         - eq_h_erow_ecol_eval1[iter];
-        //     let eq_circuit_eval_point_at_two = f_2
-        //         * eq_circuit_eval_point[iter + eq_p_prime_eval1.len() / 2]
-        //         - eq_circuit_eval_point[iter];
-        //     let h_erow_ecol_at_two =
-        //         f_2 * h_erow_ecol[iter + eq_p_prime_eval1.len() / 2] - h_erow_ecol[iter];
-        //     value_at_2 += (eq_h_erow_ecol_at_two * batch_sum_check_random_combiner[2]
-        //         + eq_circuit_eval_point_at_two * batch_sum_check_random_combiner[3])
-        //         * h_erow_ecol_at_two;
-
-        //     //----------
-        //     value_at_0 +=
-        //         eq_h_erow_ecol_eval1[iter] * batch_sum_check_random_combiner[4] * h_val[iter];
-
-        //     value_at_1 += eq_h_erow_ecol_eval1[iter + eq_p_prime_eval1.len() / 2]
-        //         * batch_sum_check_random_combiner[4]
-        //         * h_val[iter + eq_p_prime_eval1.len() / 2];
-
-        //     let h_val_at_two = f_2 * h_val[iter + eq_p_prime_eval1.len() / 2] - h_val[iter];
-        //     value_at_2 += eq_h_erow_ecol_at_two * batch_sum_check_random_combiner[4] * h_val_at_two;
-
-        //     //----------
-
-        //     value_at_0 += (read_final_ts_row[iter] * batch_sum_check_random_combiner[5]
-        //         + read_final_ts_col[iter] * batch_sum_check_random_combiner[6])
-        //         * eq_circuit_eval_point[iter];
-
-        //     value_at_1 += (read_final_ts_row[iter + eq_p_prime_eval1.len() / 2]
-        //         * batch_sum_check_random_combiner[5]
-        //         + read_final_ts_col[iter + eq_p_prime_eval1.len() / 2]
-        //             * batch_sum_check_random_combiner[6])
-        //         * eq_circuit_eval_point[iter + eq_p_prime_eval1.len() / 2];
-
-        //     let read_final_ts_row_at_two = f_2
-        //         * read_final_ts_row[iter + eq_p_prime_eval1.len() / 2]
-        //         - read_final_ts_row[iter];
-        //     let read_final_ts_col_at_two = f_2
-        //         * read_final_ts_col[iter + eq_p_prime_eval1.len() / 2]
-        //         - read_final_ts_col[iter];
-
-        //     value_at_2 += (read_final_ts_row_at_two * batch_sum_check_random_combiner[5]
-        //         + read_final_ts_col_at_two * batch_sum_check_random_combiner[6])
-        //         * eq_circuit_eval_point_at_two;
-
-        //     //---------
-        //     value_at_0 += (eq_quarks_sum_check[iter] * batch_sum_check_random_combiner[7]
-        //         + eq_circuit_eval_point[iter] * batch_sum_check_random_combiner[8])
-        //         * circuit11[iter];
-
-        //     value_at_1 += (eq_quarks_sum_check[iter + eq_p_prime_eval1.len() / 2]
-        //         * batch_sum_check_random_combiner[7]
-        //         + eq_circuit_eval_point[iter + eq_p_prime_eval1.len() / 2]
-        //             * batch_sum_check_random_combiner[8])
-        //         * circuit11[iter + eq_p_prime_eval1.len() / 2];
-
-        //     let eq_quarks_sum_check_at_two = f_2
-        //         * eq_quarks_sum_check[iter + eq_p_prime_eval1.len() / 2]
-        //         - eq_quarks_sum_check[iter];
-        //     let circuit11_at_two =
-        //         f_2 * circuit11[iter + eq_p_prime_eval1.len() / 2] - circuit11[iter];
-
-        //     value_at_2 += (eq_quarks_sum_check_at_two * batch_sum_check_random_combiner[7]
-        //         + eq_circuit_eval_point_at_two * batch_sum_check_random_combiner[8])
-        //         * circuit11_at_two;
-
-        //     //---------
-        //     value_at_0 += (eq_quarks_sum_check[iter] * batch_sum_check_random_combiner[9]
-        //         + eq_circuit_eval_point[iter] * batch_sum_check_random_combiner[10])
-        //         * circuit21[iter];
-
-        //     value_at_1 += (eq_quarks_sum_check[iter + eq_p_prime_eval1.len() / 2]
-        //         * batch_sum_check_random_combiner[9]
-        //         + eq_circuit_eval_point[iter + eq_p_prime_eval1.len() / 2]
-        //             * batch_sum_check_random_combiner[10])
-        //         * circuit21[iter + eq_p_prime_eval1.len() / 2];
-
-        //     let circuit21_at_two =
-        //         f_2 * circuit21[iter + eq_p_prime_eval1.len() / 2] - circuit21[iter];
-
-        //     value_at_2 += (eq_quarks_sum_check_at_two * batch_sum_check_random_combiner[9]
-        //         + eq_circuit_eval_point_at_two * batch_sum_check_random_combiner[10])
-        //         * circuit21_at_two;
-
-        //     //---------
-        //     value_at_0 += (eq_quarks_sum_check[iter] * batch_sum_check_random_combiner[11]
-        //         + eq_circuit_eval_point[iter] * batch_sum_check_random_combiner[12])
-        //         * circuit31[iter];
-
-        //     value_at_1 += (eq_quarks_sum_check[iter + eq_p_prime_eval1.len() / 2]
-        //         * batch_sum_check_random_combiner[11]
-        //         + eq_circuit_eval_point[iter + eq_p_prime_eval1.len() / 2]
-        //             * batch_sum_check_random_combiner[12])
-        //         * circuit31[iter + eq_p_prime_eval1.len() / 2];
-
-        //     let circuit31_at_two =
-        //         f_2 * circuit31[iter + eq_p_prime_eval1.len() / 2] - circuit31[iter];
-
-        //     value_at_2 += (eq_quarks_sum_check_at_two * batch_sum_check_random_combiner[11]
-        //         + eq_circuit_eval_point_at_two * batch_sum_check_random_combiner[12])
-        //         * circuit31_at_two;
-
-        //     //---------
-        //     value_at_0 += (eq_quarks_sum_check[iter] * batch_sum_check_random_combiner[13]
-        //         + eq_circuit_eval_point[iter] * batch_sum_check_random_combiner[14])
-        //         * circuit41[iter];
-
-        //     value_at_1 += (eq_quarks_sum_check[iter + eq_p_prime_eval1.len() / 2]
-        //         * batch_sum_check_random_combiner[13]
-        //         + eq_circuit_eval_point[iter + eq_p_prime_eval1.len() / 2]
-        //             * batch_sum_check_random_combiner[14])
-        //         * circuit41[iter + eq_p_prime_eval1.len() / 2];
-
-        //     let circuit41_at_two =
-        //         f_2 * circuit41[iter + eq_p_prime_eval1.len() / 2] - circuit41[iter];
-
-        //     value_at_2 += (eq_quarks_sum_check_at_two * batch_sum_check_random_combiner[13]
-        //         + eq_circuit_eval_point_at_two * batch_sum_check_random_combiner[14])
-        //         * circuit41_at_two;
-
-        //     //----------
-        //     value_at_0 +=
-        //         eq_circuit_eval_point[iter] * batch_sum_check_random_combiner[15] * h_row_col[iter];
-
-        //     value_at_1 += eq_circuit_eval_point[iter + eq_p_prime_eval1.len() / 2]
-        //         * batch_sum_check_random_combiner[15]
-        //         * h_row_col[iter + eq_p_prime_eval1.len() / 2];
-
-        //     let h_row_col_at_two =
-        //         f_2 * h_row_col[iter + eq_p_prime_eval1.len() / 2] - h_row_col[iter];
-        //     value_at_2 += eq_circuit_eval_point_at_two
-        //         * batch_sum_check_random_combiner[15]
-        //         * h_row_col_at_two;
-
-        //     //----------
-        // }
 
         let polynomial_current_round = [
             value_at_0 * f_2_inv - value_at_1 + value_at_2 * f_2_inv,
@@ -3424,7 +3098,6 @@ fn create_grand_prod_circ<F: PrimeField>(circuit: &mut Vec<F>) {
         layer_size /= 2;
     }
 }
-
 pub fn basefold_batch_open<F, H, S>(
     pp: &BasefoldProverParams<F>,
     polys: &mut Vec<Vec<F>>,
@@ -3445,7 +3118,7 @@ pub fn basefold_batch_open<F, H, S>(
     // println!("Element written = {:?}", a);
     let num_vars = pp.num_vars;
     let num_rounds = num_vars;
-    let table_w_weights = pp.table_w_weights.clone();
+    // let table_w_weights = pp.table_w_weights.clone();
 
     // println!("evals prover side = {:?} ", evals);
 
@@ -3459,12 +3132,14 @@ pub fn basefold_batch_open<F, H, S>(
         }
     }
     println!(
-        "Time to compute combined codeword in basefold batch open = {:?}",
+        "Time to compute combined polynomial in basefold batch open = {:?}",
         now.elapsed(),
     );
-    let mut combined_1 = combined_poly.clone();
+    // let mut combined_1 = combined_poly.clone();
 
+    let now = Instant::now();
     let mut combined_poly_clone = combined_poly.clone();
+    println!("Time to clone a poly = {:?}", now.elapsed());
     reverse_index_bits_in_place(&mut combined_poly_clone);
     let mut point_clone = point.clone();
     point_clone.reverse();
@@ -3483,16 +3158,16 @@ pub fn basefold_batch_open<F, H, S>(
             combined_codeword_0[j] += random_combiners[i] * comms[i].codeword.poly[j];
         }
     }
-    println!(
-        "Time to compute combined codeword in basefold batch open = {:?}",
-        now.elapsed(),
-    );
     // For testing
     // let mut combined_codeword_1 = combined_codeword_0.clone();
 
     let mut combined_codeword = Type1Polynomial {
         poly: combined_codeword_0,
     };
+    println!(
+        "Time to compute combined codeword in basefold batch open = {:?}",
+        now.elapsed(),
+    );
 
     // Assuming all polys have len 1 << num_vars
     let mut eq_vec = vec![F::ZERO; 1 << num_vars];
@@ -3550,7 +3225,7 @@ pub fn basefold_batch_open<F, H, S>(
 
         let now = Instant::now();
         codewords.push(basefold::basefold_one_round_by_interpolation_weights::<F>(
-            &table_w_weights,
+            &pp.table_w_weights,
             iter,
             &combined_codeword,
             r,
@@ -3588,8 +3263,8 @@ pub fn basefold_batch_open<F, H, S>(
         now.elapsed()
     );
 
-    let combined_eval = evaluate_poly(&combined_1, &r_point);
-    assert_eq!(combined_eval, combined_poly[0]);
+    // let combined_eval = evaluate_poly(&combined_poly, &r_point);
+    // assert_eq!(combined_eval, combined_poly[0]);
 
     // Query phase
 
@@ -3598,20 +3273,42 @@ pub fn basefold_batch_open<F, H, S>(
     let challenges: Vec<usize> = (0..num_challenges)
         .map(|_| squeeze_challenge_idx(transcript, comms[0].codeword.poly.len() / 2))
         .collect();
+    println!(
+        "comms[0].codeword.poly.len() = {}",
+        comms[0].codeword.poly.len(),
+    );
 
     for i in 0..challenges.len() {
         let mut challenge = challenges[i];
+        let mut j = 0;
         for comm in comms {
+            // println!("For challenge {i}, commitment {j}");
+            // println!("comm.codeword_tree.len() = {}", comm.codeword_tree.len());
+            // println!(
+            //     "comm.codeword_tree[0].len() = {}",
+            //     comm.codeword_tree[0].len()
+            // );
             transcript.write_field_element(&comm.codeword.poly[2 * challenge]);
             transcript.write_field_element(&comm.codeword.poly[2 * challenge + 1]);
-            basefold::write_merkle_path::<H, F>(&comm.codeword_tree, 2 * challenge, transcript);
+            write_merkle_path::<F, H>(2 * challenge, &comm.codeword_tree, transcript);
+            j += 1;
         }
         challenge = challenge / 2;
 
         for iter in 1..num_rounds + 1 {
             transcript.write_field_element(&codewords[iter - 1].poly[2 * challenge]);
             transcript.write_field_element(&codewords[iter - 1].poly[2 * challenge + 1]);
-            basefold::write_merkle_path::<H, F>(&merkle_trees[iter - 1], 2 * challenge, transcript);
+            // println!(
+            //     "merkle_trees[{}].len() = {}",
+            //     iter - 1,
+            //     merkle_trees[iter - 1].len()
+            // );
+            // println!(
+            //     "merkle_trees[{}][0].len() = {}",
+            //     iter - 1,
+            //     merkle_trees[iter - 1][0].len()
+            // );
+            write_merkle_path::<F, H>(2 * challenge, &merkle_trees[iter - 1], transcript);
             challenge = challenge / 2;
         }
     }
@@ -3727,19 +3424,20 @@ where
             // println!("For commitment {j}");
             elem_1 = transcript.read_field_element().unwrap();
             elem_2 = transcript.read_field_element().unwrap();
-            let merkle_path_flat = transcript
-                .read_commitments(2 * (vp.log_rate + vp.num_vars - 1))
+            // println!("Reads = {}", vp.log_rate + vp.num_vars);
+            let merkle_path = transcript
+                .read_commitments(vp.log_rate + vp.num_vars)
                 .unwrap();
-            let merkle_path: Vec<Vec<Output<H>>> =
-                merkle_path_flat.chunks(2).map(|c| c.to_vec()).collect();
-            basefold::authenticate_merkle_path_root::<H, F>(
-                &merkle_path,
-                (elem_1, elem_2),
+            // println!("Merkle path len = {}", merkle_path.len());
+            authenticate_merkle_path::<F, H>(
                 2 * query_idx,
+                (elem_1, elem_2),
+                merkle_path,
                 &comms[j],
             );
             elems[0].0 += random_combiners[j] * elem_1;
-            elems[0].1 += random_combiners[j] * elem_2
+            elems[0].1 += random_combiners[j] * elem_2;
+            // println!("End of for commitment {j}");
         }
         query_idx = query_idx / 2;
 
@@ -3749,15 +3447,13 @@ where
             elem_2 = transcript.read_field_element().unwrap();
             elems.push((elem_1, elem_2));
 
-            let merkle_path_flat = transcript
-                .read_commitments(2 * (vp.log_rate + vp.num_vars - 1 - iter))
+            let merkle_path = transcript
+                .read_commitments(vp.log_rate + vp.num_vars - iter)
                 .unwrap();
-            let merkle_path: Vec<Vec<Output<H>>> =
-                merkle_path_flat.chunks(2).map(|c| c.to_vec()).collect();
-            basefold::authenticate_merkle_path_root::<H, F>(
-                &merkle_path,
-                (elem_1, elem_2),
+            authenticate_merkle_path::<F, H>(
                 2 * query_idx,
+                (elem_1, elem_2),
+                merkle_path,
                 &oracles[iter - 1],
             );
             query_idx = query_idx / 2;
@@ -3840,6 +3536,74 @@ where
         // println!("VERIFICATION for query {i} SUCCESSFUL!");
     }
     // println!("VERIFICATION SUCCESSFUL!");
+    Ok(())
+}
+
+fn write_merkle_path<F: PrimeField, H: Hash>(
+    mut idx: usize,
+    merkle_tree: &Vec<Vec<Output<H>>>,
+    transcript: &mut impl TranscriptWrite<Output<H>, F>,
+) {
+    let path_len = merkle_tree.len();
+    idx >>= 1;
+    // let mut writes = 0;
+    assert!(idx < (1 << path_len - 1));
+    for i in 0..path_len - 1 {
+        transcript.write_commitment(&merkle_tree[i][idx ^ 1]);
+        idx >>= 1;
+        // writes += 1;
+    }
+    transcript.write_commitment(&merkle_tree[path_len - 1][0]);
+    //println!("Writes = {}", writes + 1);
+
+    // let merkle_path: Vec<&Output<H>> = merkle_tree
+    //     .par_iter()
+    //     .enumerate()
+    //     .map(|(i, layer)| &layer[idx >> i])
+    //     .collect();
+}
+
+fn authenticate_merkle_path<F: PrimeField, H: Hash>(
+    mut idx: usize,
+    elems: (F, F),
+    merkle_path: Vec<Output<H>>,
+    root: &Output<H>,
+) -> Result<(), Error> {
+    let path_len = merkle_path.len();
+    idx >>= 1;
+    assert!(idx < (1 << path_len - 1));
+    let mut hasher = H::new();
+    hasher.update_field_element(&elems.0);
+    hasher.update_field_element(&elems.1);
+    let mut hash = hasher.finalize_fixed();
+    for i in 0..path_len - 1 {
+        let mut hasher = H::new();
+        if idx % 2 == 0 {
+            hasher.update(&hash);
+            hasher.update(&merkle_path[i]);
+            hash = hasher.finalize_fixed();
+        } else {
+            hasher.update(&merkle_path[i]);
+            hasher.update(&hash);
+            hash = hasher.finalize_fixed();
+        }
+        idx >>= 1;
+    }
+    // println!("{:?} {:?}", merkle_path[path_len - 1], *root);
+    for i in 0..merkle_path[path_len - 1].len() {
+        let h_1 = merkle_path[path_len - 1][i];
+        let h_2 = root[i];
+        assert_eq!(h_1, h_2);
+        if h_1 != h_2 {
+            println!("ERROR in Merkle path opening!");
+        }
+    }
+    // if merkle_path[path_len - 1] != *root {
+    //     println!("ERROR in Merkle path opening!");
+    //     return Err(Error::InvalidPcsOpen(
+    //         "Invalid merkle tree opening".to_string(),
+    //     ));
+    // }
     Ok(())
 }
 
