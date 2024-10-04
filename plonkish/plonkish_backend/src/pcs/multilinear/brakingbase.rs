@@ -1281,7 +1281,7 @@ where
         let mut first_sum_check_random_points = vec![F::ZERO; sum_check_rounds as usize];
         for i in 0..sum_check_rounds as usize {
             let mut a = transcript.read_field_elements(3).unwrap();
-            // println!("Verifier side round = {}, elems = {:?}", i, a);
+            println!("Verifier side round = {}, elems = {:?}", i, a);
 
             if sum_check_val != (F::ONE + F::ONE) * a[2] + a[1] + a[0] {
                 println!("Error in round {i}");
@@ -1331,9 +1331,8 @@ where
         println!("First sum check verifier done.");
         //transcript.write_field_elements([h_eval, p_eval, p_prime_eval].iter());
 
-        let h_erow_commit = transcript.read_commitment().unwrap();
-        let h_ecol_commit = transcript.read_commitment().unwrap();
-
+        let h_erow_ecol_commit = transcript.read_commitment().unwrap();
+        
         /*SECOND SUM_CHECK VERIFICATION */
         let mut sum_check_val = h_eval;
         //TODO (Bhargav): Passes modulo the sum_check_rounds. Needs to be determined. The expression does not hold for number of vars >13.
@@ -1370,7 +1369,7 @@ where
         /*QUARKS SUM_CHECK VERIFICATION */
         // println!("STARTING QUARKS SUM CHECK VERIFICATION");
         let gamma_tau = transcript.squeeze_challenges(2);
-       
+
         //TODO:- Add final layer evaluatsions
         gkr_verifier::<F>(
             (2 * row_len).ilog2() as usize,
