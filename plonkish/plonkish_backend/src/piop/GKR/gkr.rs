@@ -42,10 +42,10 @@ pub fn gkr_prover<F: PrimeField + Serialize + DeserializeOwned, H: Hash, S: Brak
         F,
     >,
 ) -> (GkrTranscript<F>, Vec<F>) {
-    let depth = circuits[0].len();
-    circuits
-        .iter()
-        .for_each(|circuit| assert_eq!(depth, circuit.len(), "Circuits do not have same depth"));
+    let depth = circuits[0].len() - 1;
+    circuits.iter().for_each(|circuit| {
+        assert_eq!(depth, circuit.len() - 1, "Circuits do not have same depth")
+    });
 
     let n_circuits = circuits.len();
     //This vector contains the values of the circuits at depth 1 i.e. the layer below the output layer.
