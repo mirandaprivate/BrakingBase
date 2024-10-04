@@ -7,7 +7,7 @@ use crate::piop::sum_check::{
     classic::{ClassicSumCheck, CoefficientsProver},
     eq_xy_eval, SumCheck as _, VirtualPolynomial,
 };
-use crate::piop::GKR::gkr::gkr_prover;
+use crate::piop::GKR::gkr::{gkr_prover, gkr_verifier};
 use crate::piop::GKR::gpc::grand_product_circuits;
 use crate::util::code::{self, ParityCheckMatrix};
 use crate::{
@@ -769,12 +769,7 @@ where
             },
         );
 
-        println!(
-            "Time to compute the grand product circuits = {:?}",
-            now.elapsed()
-        );
-
-        let (transcript1, random_points1) = gkr_prover::<F, H, S>(
+        let random_points1 = gkr_prover::<F, H, S>(
             &[
                 w_init_circuit_layers_row,
                 s_circuit_layers_row,
@@ -784,7 +779,7 @@ where
             .to_vec(),
             transcript,
         );
-        let (transcript2, random_points2) = gkr_prover::<F, H, S>(
+        let random_points2 = gkr_prover::<F, H, S>(
             &[
                 w_update_circuit_layers_row,
                 r_circuit_layers_row,
@@ -1336,11 +1331,13 @@ where
         println!("First sum check verifier done.");
         //transcript.write_field_elements([h_eval, p_eval, p_prime_eval].iter());
 
-        let h_erow_ecol_commit = transcript.read_commitment().unwrap();
+        let h_erow_commit = transcript.read_commitment().unwrap();
+        let h_ecol_commit = transcript.read_commitment().unwrap();
 
         /*SECOND SUM_CHECK VERIFICATION */
         let mut sum_check_val = h_eval;
-        let sum_check_rounds = (vp.basefold_poly_size).ilog2();
+        //TODO (Bhargav): Passes modulo the sum_check_rounds. Needs to be determined. The expression does not hold for number of vars >13.
+        let sum_check_rounds = vp.basefold_poly_size.ilog2();
         let mut second_sum_check_random_points = vec![F::ZERO; sum_check_rounds as usize];
         for i in 0..sum_check_rounds as usize {
             let mut a = transcript.read_field_elements(4).unwrap();
@@ -1372,8 +1369,21 @@ where
 
         /*QUARKS SUM_CHECK VERIFICATION */
         // println!("STARTING QUARKS SUM CHECK VERIFICATION");
-        // let gamma_tau = transcript.squeeze_challenges(2);
-
+        let gamma_tau = transcript.squeeze_challenges(2);
+       
+        //TODO:- Add final layer evaluatsions
+        gkr_verifier::<F>(
+            (2 * row_len).ilog2() as usize,
+            transcript,
+            vec![F::ZERO; 8],
+            4,
+        );
+        gkr_verifier::<F>(
+            vp.basefold_poly_size.ilog2() as usize,
+            transcript,
+            vec![F::ZERO; 8],
+            4,
+        );
         // let circuit_11_commit = transcript.read_commitment().unwrap();
         // let circuit_21_commit = transcript.read_commitment().unwrap();
         // let circuit_31_commit = transcript.read_commitment().unwrap();
@@ -1780,10 +1790,7 @@ where
         // let mut comms = Vec::<Output<H>>::with_capacity(10);
         // comms.push(p_p_prime_commit);
         // comms.push(h_erow_ecol_commit);
-        // comms.push(vp.trusted_commit[0].clone());
-        // comms.push(vp.trusted_commit[1].clone());
-        // comms.push(vp.trusted_commit[2].clone());
-        // comms.push(vp.trusted_commit[3].clone());
+        // comms.push(vp.trusted_commit.clone());
         // comms.push(circuit_11_commit);
         // comms.push(circuit_21_commit);
         // comms.push(circuit_31_commit);
