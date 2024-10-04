@@ -7,7 +7,7 @@ use crate::{
 
 mod basefold;
 mod brakedown;
-mod brakingbase;
+pub mod brakingbase;
 mod gemini;
 mod hyrax;
 mod ipa;
