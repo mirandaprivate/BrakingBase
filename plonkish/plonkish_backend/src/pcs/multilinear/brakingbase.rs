@@ -7,7 +7,7 @@ use crate::piop::sum_check::{
     classic::{ClassicSumCheck, CoefficientsProver},
     eq_xy_eval, SumCheck as _, VirtualPolynomial,
 };
-use crate::piop::GKR::gkr::gkr_prover;
+use crate::piop::GKR::gkr::{gkr_prover, gkr_verifier};
 use crate::piop::GKR::gpc::grand_product_circuits;
 use crate::util::code::{self, ParityCheckMatrix};
 use crate::{
@@ -655,7 +655,7 @@ where
 
         assert!(h_val.len().is_power_of_two());
 
-        let sum_check_rounds = (h_val.len() / 2).ilog2() as usize; // Changed by Bhargav
+        let sum_check_rounds = (h_val.len()).ilog2() as usize; // Changed by Bhargav
         let mut second_sum_check_random_points = vec![F::ZERO; sum_check_rounds];
 
         let h_val_clone = h_val.clone();
@@ -683,7 +683,7 @@ where
             sum_check_rounds,
             h_erow.clone(),
             h_ecol.clone(),
-            h_val[0..basefold_poly_size / 2].to_vec(),
+            h_val[0..basefold_poly_size].to_vec(),
             &mut second_sum_check_random_points,
             transcript,
         );
@@ -903,7 +903,7 @@ where
             },
         );
 
-        let (transcript1, random_points1) = gkr_prover::<F, H, S>(
+        let random_points1 = gkr_prover::<F, H, S>(
             &[
                 w_init_circuit_layers_row,
                 s_circuit_layers_row,
@@ -913,7 +913,7 @@ where
             .to_vec(),
             transcript,
         );
-        let (transcript2, random_points2) = gkr_prover::<F, H, S>(
+        let random_points2 = gkr_prover::<F, H, S>(
             &[
                 w_update_circuit_layers_row,
                 r_circuit_layers_row,
@@ -1692,12 +1692,13 @@ where
         //println!("Verifier Here");
         //transcript.write_field_elements([h_eval, p_eval, p_prime_eval].iter());
 
-        let h_erow_ecol_commit = transcript.read_commitment().unwrap();
+        let h_erow_commit = transcript.read_commitment().unwrap();
+        let h_ecol_commit = transcript.read_commitment().unwrap();
 
         /*SECOND SUM_CHECK VERIFICATION */
         let mut sum_check_val = h_eval;
         //TODO (Bhargav): Passes modulo the sum_check_rounds. Needs to be determined. The expression does not hold for number of vars >13.
-        let sum_check_rounds = (vp.basefold_poly_size / 2).ilog2();
+        let sum_check_rounds = vp.basefold_poly_size.ilog2();
         let mut second_sum_check_random_points = vec![F::ZERO; sum_check_rounds as usize];
         for i in 0..sum_check_rounds as usize {
             let mut a = transcript.read_field_elements(4).unwrap();
@@ -1729,449 +1730,456 @@ where
         /*QUARKS SUM_CHECK VERIFICATION */
         // println!("STARTING QUARKS SUM CHECK VERIFICATION");
         let gamma_tau = transcript.squeeze_challenges(2);
-
-        let circuit_11_commit = transcript.read_commitment().unwrap();
-        let circuit_21_commit = transcript.read_commitment().unwrap();
-        let circuit_31_commit = transcript.read_commitment().unwrap();
-        let circuit_41_commit = transcript.read_commitment().unwrap();
-
-        let circuit_1_value = transcript.read_field_element();
-        let circuit_2_value = transcript.read_field_element();
-        let circuit_3_value = transcript.read_field_element();
-        let circuit_4_value = transcript.read_field_element();
-
-        assert_eq!(
-            circuit_1_value, circuit_2_value,
-            "grand_product check not satisfied for rows"
-        );
-        assert_eq!(
-            circuit_3_value, circuit_4_value,
-            "grand_product check not satisfied for cols"
-        );
-
-        let quarks_binding_variables =
-            transcript.squeeze_challenges(vp.basefold_poly_size.ilog2() as usize);
-        let quarks_random_combiner = transcript.squeeze_challenges(4);
-
-        let mut sum_check_val = F::ZERO;
-        let sum_check_rounds = vp.basefold_poly_size.ilog2();
-        // println!(
-        //     "The number of rounds in the quarks sum check at verifier side is {sum_check_rounds}"
-        // );
-        let mut quarks_sum_check_random_points = vec![F::ZERO; sum_check_rounds as usize];
-        for i in 0..sum_check_rounds as usize {
-            let mut a = transcript.read_field_elements(4).unwrap();
-            if sum_check_val != (F::ONE + F::ONE) * a[3] + a[2] + a[1] + a[0] {
-                println!("Error in round {i}");
-                return Err(Error::InvalidPcsOpen("Quarks Sum check failed".to_string()));
-            }
-            let r = transcript.squeeze_challenge();
-            if i == 0 {
-                // println!(
-                //     "The random value at round 0 of the quarks sum check is {:?}",
-                //     r
-                // );
-            }
-            quarks_sum_check_random_points[i] = r;
-            sum_check_val = a[3] + a[2] * r + a[1] * r * r + a[0] * r * r * r;
-        }
-
-        //Reading values
-        let circuit11_eval = transcript.read_field_element().unwrap();
-        let circuit21_eval = transcript.read_field_element().unwrap();
-        let circuit31_eval = transcript.read_field_element().unwrap();
-        let circuit41_eval = transcript.read_field_element().unwrap();
-
-        let circuit1_even_eval = transcript.read_field_element().unwrap();
-        let circuit2_even_eval = transcript.read_field_element().unwrap();
-        let circuit3_even_eval = transcript.read_field_element().unwrap();
-        let circuit4_even_eval = transcript.read_field_element().unwrap();
-
-        let circuit1_odd_eval = transcript.read_field_element().unwrap();
-        let circuit2_odd_eval = transcript.read_field_element().unwrap();
-        let circuit3_odd_eval = transcript.read_field_element().unwrap();
-        let circuit4_odd_eval = transcript.read_field_element().unwrap();
-
-        //compute eq_random
-        let mut eq_random_value = F::ONE;
-        for i in 0..quarks_binding_variables.len() {
-            eq_random_value *= (F::ONE - quarks_binding_variables[i])
-                * (F::ONE - quarks_sum_check_random_points[i])
-                + quarks_binding_variables[i] * quarks_sum_check_random_points[i];
-        }
-
-        let mut final_value =
-            quarks_random_combiner[0] * (circuit11_eval - circuit1_even_eval * circuit1_odd_eval);
-        final_value +=
-            quarks_random_combiner[1] * (circuit21_eval - circuit2_even_eval * circuit2_odd_eval);
-        final_value +=
-            quarks_random_combiner[2] * (circuit31_eval - circuit3_even_eval * circuit3_odd_eval);
-        final_value +=
-            quarks_random_combiner[3] * (circuit41_eval - circuit4_even_eval * circuit4_odd_eval);
-
-        final_value *= eq_random_value;
-
-        if sum_check_val != final_value {
-            println!("Error in final check of quarks sum-check");
-            return Err(Error::InvalidPcsOpen("Sum check failed".to_string()));
-        }
-
-        /*END OF QUARKS SUM_CHECK VERIFICATION */
-        let r = transcript.squeeze_challenge();
-        let mut circuit_eval_point = quarks_sum_check_random_points[1..].to_vec();
-        circuit_eval_point.push(r);
-
-        let h_row_eval = transcript.read_field_element().unwrap();
-        let h_erow_eval2 = transcript.read_field_element().unwrap();
-        let read_ts_row_eval = transcript.read_field_element().unwrap();
-        let final_ts_row_eval = transcript.read_field_element().unwrap();
-        let h_col_eval = transcript.read_field_element().unwrap();
-        let h_ecol_eval2 = transcript.read_field_element().unwrap();
-        let read_ts_col_eval = transcript.read_field_element().unwrap();
-        let final_ts_col_eval = transcript.read_field_element().unwrap();
-
-        /*Computing Circuit10 and Circuit20 evaluations */
-        let mut row_idx_value = F::ZERO;
-        for i in 0..circuit_eval_point.len() - 1 {
-            row_idx_value +=
-                F::from_u128(1 << i) * circuit_eval_point[circuit_eval_point.len() - 1 - i];
-        }
-        let mut extend_first_sum_check_random_points = vec![F::ZERO; circuit_eval_point.len() - 1];
-        let extend_length = circuit_eval_point.len() - 1 - first_sum_check_random_points.len();
-        for i in 0..circuit_eval_point.len() - 1 {
-            if i >= extend_length {
-                extend_first_sum_check_random_points[i] =
-                    first_sum_check_random_points[i - extend_length];
-            }
-        }
-        let val = eq_eval_random(
-            &extend_first_sum_check_random_points,
-            &circuit_eval_point[1..].to_vec(),
-        );
-
-        let value1 = row_idx_value + gamma_tau[0] * val - gamma_tau[1];
-        let value2 = h_row_eval
-            + gamma_tau[0] * h_erow_eval2
-            + gamma_tau[0] * gamma_tau[0] * (read_ts_row_eval + F::ONE)
-            - gamma_tau[1];
-        let circuit10_eval2 =
-            (F::ONE - circuit_eval_point[0]) * value1 + circuit_eval_point[0] * value2;
-
-        let value2 =
-            row_idx_value + gamma_tau[0] * val + gamma_tau[0] * gamma_tau[0] * final_ts_row_eval
-                - gamma_tau[1];
-        let value1 = h_row_eval
-            + gamma_tau[0] * h_erow_eval2
-            + gamma_tau[0] * gamma_tau[0] * read_ts_row_eval
-            - gamma_tau[1];
-        let circuit20_eval2 =
-            (F::ONE - circuit_eval_point[0]) * value1 + circuit_eval_point[0] * value2;
-
-        /*End Of Computing Circuit10 and Circuit20 evaluations */
-
-        /*Computing Circuit30 and Circuit40 evaluations */
-        let mut extend_u = vec![F::ZERO; circuit_eval_point.len() - 1];
-        let extend_length = circuit_eval_point.len() - 1 - u.len();
-        for i in 0..circuit_eval_point.len() - 1 {
-            if i >= extend_length {
-                extend_u[i] = u[i - extend_length];
-            }
-        }
-        let val = eq_eval_random(&extend_u, &circuit_eval_point[1..].to_vec());
-
-        let value1 = row_idx_value + gamma_tau[0] * val - gamma_tau[1];
-        let value2 = h_col_eval
-            + gamma_tau[0] * h_ecol_eval2
-            + gamma_tau[0] * gamma_tau[0] * (read_ts_col_eval + F::ONE)
-            - gamma_tau[1];
-        let circuit30_eval2 =
-            (F::ONE - circuit_eval_point[0]) * value1 + circuit_eval_point[0] * value2;
-        //assert_eq!(circuit30_eval, test_value, "Circuit1 test values not matching");
-
-        let value2 =
-            row_idx_value + gamma_tau[0] * val + gamma_tau[0] * gamma_tau[0] * final_ts_col_eval
-                - gamma_tau[1];
-        let value1 = h_col_eval
-            + gamma_tau[0] * h_ecol_eval2
-            + gamma_tau[0] * gamma_tau[0] * read_ts_col_eval
-            - gamma_tau[1];
-        let circuit40_eval2 =
-            (F::ONE - circuit_eval_point[0]) * value1 + circuit_eval_point[0] * value2;
-
-        /*End Of Computing Circuit30 and Circuit40 evaluations */
-
-        let circuit11_eval2 = transcript.read_field_element().unwrap();
-        let circuit21_eval2 = transcript.read_field_element().unwrap();
-        let circuit31_eval2 = transcript.read_field_element().unwrap();
-        let circuit41_eval2 = transcript.read_field_element().unwrap();
-
-        //Verification of odd and even evals
-        let quarks_sum_check_msb = quarks_sum_check_random_points[0];
-        let circuit1_eval2 = (F::ONE - quarks_sum_check_msb) * circuit10_eval2
-            + quarks_sum_check_msb * circuit11_eval2;
-        let circuit2_eval2 = (F::ONE - quarks_sum_check_msb) * circuit20_eval2
-            + quarks_sum_check_msb * circuit21_eval2;
-        let circuit3_eval2 = (F::ONE - quarks_sum_check_msb) * circuit30_eval2
-            + quarks_sum_check_msb * circuit31_eval2;
-        let circuit4_eval2 = (F::ONE - quarks_sum_check_msb) * circuit40_eval2
-            + quarks_sum_check_msb * circuit41_eval2;
-
-        let circuit1_eval1 = (F::ONE - r) * circuit1_even_eval + r * circuit1_odd_eval;
-        let circuit2_eval1 = (F::ONE - r) * circuit2_even_eval + r * circuit2_odd_eval;
-        let circuit3_eval1 = (F::ONE - r) * circuit3_even_eval + r * circuit3_odd_eval;
-        let circuit4_eval1 = (F::ONE - r) * circuit4_even_eval + r * circuit4_odd_eval;
-
-        assert_eq!(
-            circuit1_eval1, circuit1_eval2,
-            "circuit values not matching"
-        );
-        assert_eq!(
-            circuit2_eval1, circuit2_eval2,
-            "circuit values not matching"
-        );
-        assert_eq!(
-            circuit3_eval1, circuit3_eval2,
-            "circuit values not matching"
-        );
-        assert_eq!(
-            circuit4_eval1, circuit4_eval2,
-            "circuit values not matching"
-        );
-
-        // println!("Verifier here");
-
-        /*Begin Batch Eval Sum-Check Verification */
-
-        let mut point_p_p_prime_eval1 =
-            vec![F::ZERO; circuit_eval_point.len() - first_sum_check_random_points.len()];
-        let p_p_prime_eval_1 = (F::ONE - first_sum_check_random_points[0]) * p_eval
-            + first_sum_check_random_points[0] * p_prime_eval;
-        // println!(
-        //     "The length of first_sum_check_random_points are {:?}",
-        //     first_sum_check_random_points.len()
-        // );
-        point_p_p_prime_eval1.append(&mut first_sum_check_random_points);
-
-        let mut point_p_p_prime_eval2 = vec![F::ZERO; circuit_eval_point.len() - 1 - u.len()];
-
-        // println!("The length of u verfier is {:?}", u.len());
-
-        point_p_p_prime_eval2.push(F::ONE);
-        point_p_p_prime_eval2.append(&mut u);
-
-        let mut point_p_p_prime_eval3 =
-            vec![F::ZERO; circuit_eval_point.len() - 1 - x_1.len().ilog2() as usize];
-
-        // println!("The length of u verfier is {:?}", u.len());
-
-        point_p_p_prime_eval3.push(F::ZERO);
-        let mut point_clone = point.to_vec();
-        point_p_p_prime_eval3.append(&mut point_clone[(x_0.len().ilog2() as usize)..].to_vec());
-        // println!(
-        //     "The length of fpoint_p_p_prime_eval1 and point_p_p_prime_eval2 are {:?}, {:?}",
-        //     point_p_p_prime_eval1.len(),
-        //     point_p_p_prime_eval2.len()
-        // );
-
-        //Need to sample an extra random point to combine values here
-        let r = transcript.squeeze_challenge(); //The length of second_sum_check_random_points is one less than circuit_eval_point.len()
-        let mut point_h_erow_ecol_eval1 = vec![r];
-        // println!(
-        //     "The length of second_sum_check_random_points are {:?}",
-        //     second_sum_check_random_points.len()
-        // );
-        point_h_erow_ecol_eval1.append(&mut second_sum_check_random_points);
-        let h_erow_ecol_eval1 = (F::ONE - r) * h_erow_eval1 + r * h_ecol_eval1;
-        let h_val_eval = (F::ONE - r) * h_val_eval;
-
-        // circuit_eval_point is the point for h_val_eval, and h_row_col_eval
-        let h_erow_ecol_eval2 =
-            (F::ONE - circuit_eval_point[0]) * h_erow_eval2 + circuit_eval_point[0] * h_ecol_eval2;
-
-        let h_row_col_eval =
-            (F::ONE - circuit_eval_point[0]) * h_row_eval + circuit_eval_point[0] * h_col_eval;
-
-        let read_final_ts_row_eval = (F::ONE - circuit_eval_point[0]) * read_ts_row_eval
-            + circuit_eval_point[0] * final_ts_row_eval;
-
-        let read_final_ts_col_eval = (F::ONE - circuit_eval_point[0]) * read_ts_col_eval
-            + circuit_eval_point[0] * final_ts_col_eval;
-
-        let sum_check_rounds = circuit_eval_point.len();
-        let mut batch_sum_check_random_points = vec![F::ZERO; sum_check_rounds];
-
-        //15 evaluations to be batched in total
-        let batch_sum_check_random_combiner = transcript.squeeze_challenges(17);
-
-        let mut sum_check_val = batch_sum_check_random_combiner[0] * p_p_prime_eval_1
-            + batch_sum_check_random_combiner[1] * p_prime_at_u
-            + batch_sum_check_random_combiner[16] * eval;
-
-        sum_check_val += batch_sum_check_random_combiner[2] * h_erow_ecol_eval1
-            + batch_sum_check_random_combiner[3] * h_erow_ecol_eval2;
-
-        sum_check_val += batch_sum_check_random_combiner[4] * h_val_eval;
-
-        sum_check_val += batch_sum_check_random_combiner[5] * read_final_ts_row_eval
-            + batch_sum_check_random_combiner[6] * read_final_ts_col_eval;
-
-        sum_check_val += batch_sum_check_random_combiner[7] * circuit11_eval
-            + batch_sum_check_random_combiner[8] * circuit11_eval2;
-
-        sum_check_val += batch_sum_check_random_combiner[9] * circuit21_eval
-            + batch_sum_check_random_combiner[10] * circuit21_eval2;
-
-        sum_check_val += batch_sum_check_random_combiner[11] * circuit31_eval
-            + batch_sum_check_random_combiner[12] * circuit31_eval2;
-
-        sum_check_val += batch_sum_check_random_combiner[13] * circuit41_eval
-            + batch_sum_check_random_combiner[14] * circuit41_eval2;
-
-        sum_check_val += batch_sum_check_random_combiner[15] * h_row_col_eval;
-
-        for i in 0..sum_check_rounds as usize {
-            let mut a = transcript.read_field_elements(3).unwrap();
-            //println!("Verifier side round = {}, elems = {:?}", i, a);
-            if sum_check_val != (F::ONE + F::ONE) * a[2] + a[1] + a[0] {
-                panic!("Error in round {i} of batch sum-check");
-
-                return Err(Error::InvalidPcsOpen("Sum check failed".to_string()));
-            }
-            let r = transcript.squeeze_challenge();
-            batch_sum_check_random_points[i] = r;
-            sum_check_val = a[2] + a[1] * r + a[0] * r * r;
-        }
-        // let r_temp = transcript.squeeze_challenge();
-        // println!("Test r at the verifier side is {:?}", r_temp);
-
-        let p_p_prime_batch_eval = transcript.read_field_element().unwrap();
-        let h_erow_ecol_batch_eval = transcript.read_field_element().unwrap();
-        let h_val_batch_eval = transcript.read_field_element().unwrap();
-        let read_final_ts_row_batch_eval = transcript.read_field_element().unwrap();
-        let read_final_ts_col_batch_eval = transcript.read_field_element().unwrap();
-        let circuit11_batch_eval = transcript.read_field_element().unwrap();
-        let circuit21_batch_eval = transcript.read_field_element().unwrap();
-        let circuit31_batch_eval = transcript.read_field_element().unwrap();
-        let circuit41_batch_eval = transcript.read_field_element().unwrap();
-        let h_row_col_batch_eval = transcript.read_field_element().unwrap();
-
-        let eq_p_prime_eval1 =
-            eq_eval_random(&point_p_p_prime_eval1, &batch_sum_check_random_points);
-        let eq_p_prime_eval2 =
-            eq_eval_random(&point_p_p_prime_eval2, &batch_sum_check_random_points);
-        let eq_p_prime_eval3 =
-            eq_eval_random(&point_p_p_prime_eval3, &batch_sum_check_random_points);
-        let eq_h_erow_ecol_eval1 =
-            eq_eval_random(&point_h_erow_ecol_eval1, &batch_sum_check_random_points);
-        let eq_circuit_eval = eq_eval_random(&circuit_eval_point, &batch_sum_check_random_points);
-
-        let eq_quarks_sum_check_eval = eq_eval_random(
-            &quarks_sum_check_random_points,
-            &batch_sum_check_random_points,
-        );
-
-        // a) p_p_prime at (point_p_p_prime_eval1,  p_p_prime_eval_1), (point_p_p_prime_eval2,  p_p_prime_eval_2)
-        // b) h_erow_ecol at (point_h_erow_ecol_eval1  h_erow_ecol_eval1), (circuit_eval_point,  h_erow_ecol_eval2)
-        // c) h_val at (point_h_erow_ecol_eval1  h_val_eval)
-        // d) read_final_ts_row at (circuit_eval_point, read_final_ts_row_eval)
-        // e) read_final_ts_col at (circuit_eval_point , read_final_ts_col)
-        // f) circuit11 at (quarks_sum_check_random_points, circuit11_eval1), (circuit_eval_point , circuit11_eval2)
-        // g) circuit21 at (quarks_sum_check_random_points, circuit21_eval1), (circuit_eval_point , circuit21_eval2)
-        // h) circuit11 at (quarks_sum_check_random_points, circuit31_eval1), (circuit_eval_point , circuit31_eval2)
-        // i) circuit21 at (quarks_sum_check_random_points, circuit41_eval1), (circuit_eval_point , circuit41_eval2)
-        // j) h_row_col at (circuit_eval_point, h_row_col_eval)
-
-        let mut final_check_val = (batch_sum_check_random_combiner[0] * eq_p_prime_eval1
-            + batch_sum_check_random_combiner[1] * eq_p_prime_eval2
-            + batch_sum_check_random_combiner[16] * eq_p_prime_eval3)
-            * p_p_prime_batch_eval;
-
-        final_check_val += (batch_sum_check_random_combiner[2] * eq_h_erow_ecol_eval1
-            + batch_sum_check_random_combiner[3] * eq_circuit_eval)
-            * h_erow_ecol_batch_eval;
-
-        final_check_val +=
-            batch_sum_check_random_combiner[4] * eq_h_erow_ecol_eval1 * h_val_batch_eval;
-
-        final_check_val += (batch_sum_check_random_combiner[5] * read_final_ts_row_batch_eval
-            + batch_sum_check_random_combiner[6] * read_final_ts_col_batch_eval)
-            * eq_circuit_eval;
-
-        final_check_val += (batch_sum_check_random_combiner[7] * eq_quarks_sum_check_eval
-            + batch_sum_check_random_combiner[8] * eq_circuit_eval)
-            * circuit11_batch_eval;
-
-        final_check_val += (batch_sum_check_random_combiner[9] * eq_quarks_sum_check_eval
-            + batch_sum_check_random_combiner[10] * eq_circuit_eval)
-            * circuit21_batch_eval;
-
-        final_check_val += (batch_sum_check_random_combiner[11] * eq_quarks_sum_check_eval
-            + batch_sum_check_random_combiner[12] * eq_circuit_eval)
-            * circuit31_batch_eval;
-
-        final_check_val += (batch_sum_check_random_combiner[13] * eq_quarks_sum_check_eval
-            + batch_sum_check_random_combiner[14] * eq_circuit_eval)
-            * circuit41_batch_eval;
-
-        final_check_val +=
-            batch_sum_check_random_combiner[15] * eq_circuit_eval * h_row_col_batch_eval;
-
-        if sum_check_val != final_check_val {
-            panic!("Error in final check of batch eval sum-check");
-            return Err(Error::InvalidPcsOpen("Sum check failed".to_string()));
-        }
-        /*End OF Batch Eval Sum-Check */
-        // println!("Verifier here just after Batch Eval Sum-Check");
-
-        // TEST CODE
-
-        // let comm_1 = transcript.read_commitment().unwrap();
-        // let comm_2 = transcript.read_commitment().unwrap();
-        // let r_1 = transcript.read_field_element().unwrap();
-        // let r_2 = transcript.read_field_element().unwrap();
-        // let point = transcript
-        //     .read_field_elements(vp.basefold.num_vars)
-        //     .unwrap();
-        // let evals = transcript.read_field_elements(2).unwrap();
-
-        let basefold_batch_open_ramdom_combiners = transcript.squeeze_challenges(10);
-
-        let mut comms = Vec::<Output<H>>::with_capacity(10);
-        comms.push(p_p_prime_commit);
-        comms.push(h_erow_ecol_commit);
-        comms.push(vp.trusted_commit[0].clone());
-        comms.push(vp.trusted_commit[1].clone());
-        comms.push(vp.trusted_commit[2].clone());
-        comms.push(vp.trusted_commit[3].clone());
-        comms.push(circuit_11_commit);
-        comms.push(circuit_21_commit);
-        comms.push(circuit_31_commit);
-        comms.push(circuit_41_commit);
-
-        let mut evals = Vec::<F>::with_capacity(10);
-        evals.push(p_p_prime_batch_eval);
-        evals.push(h_erow_ecol_batch_eval);
-        evals.push(h_val_batch_eval);
-        evals.push(h_row_col_batch_eval);
-        evals.push(read_final_ts_row_batch_eval);
-        evals.push(read_final_ts_col_batch_eval);
-        evals.push(circuit11_batch_eval);
-        evals.push(circuit21_batch_eval);
-        evals.push(circuit31_batch_eval);
-        evals.push(circuit41_batch_eval);
-
-        batch_sum_check_random_points.reverse();
-
-        basefold_batch_verify::<F, H, S>(
-            &vp.basefold,
-            &basefold_batch_open_ramdom_combiners,
-            &batch_sum_check_random_points,
-            &comms,
-            &evals,
+       
+        //TODO:- Add final layer evaluatsions
+        gkr_verifier::<F>(
+            (2 * row_len).ilog2() as usize,
             transcript,
-        )
+            vec![F::ZERO; 8],
+            4,
+        );
+        gkr_verifier::<F>(
+            vp.basefold_poly_size.ilog2() as usize,
+            transcript,
+            vec![F::ZERO; 8],
+            4,
+        );
+        // let circuit_11_commit = transcript.read_commitment().unwrap();
+        // let circuit_21_commit = transcript.read_commitment().unwrap();
+        // let circuit_31_commit = transcript.read_commitment().unwrap();
+        // let circuit_41_commit = transcript.read_commitment().unwrap();
 
-        // Ok(())
+        // let circuit_1_value = transcript.read_field_element();
+        // let circuit_2_value = transcript.read_field_element();
+        // let circuit_3_value = transcript.read_field_element();
+        // let circuit_4_value = transcript.read_field_element();
+
+        // assert_eq!(
+        //     circuit_1_value, circuit_2_value,
+        //     "grand_product check not satisfied for rows"
+        // );
+        // assert_eq!(
+        //     circuit_3_value, circuit_4_value,
+        //     "grand_product check not satisfied for cols"
+        // );
+
+        // let quarks_binding_variables =
+        //     transcript.squeeze_challenges(vp.basefold_poly_size.ilog2() as usize);
+        // let quarks_random_combiner = transcript.squeeze_challenges(4);
+
+        // let mut sum_check_val = F::ZERO;
+        // let sum_check_rounds = vp.basefold_poly_size.ilog2();
+        // // println!(
+        // //     "The number of rounds in the quarks sum check at verifier side is {sum_check_rounds}"
+        // // );
+        // let mut quarks_sum_check_random_points = vec![F::ZERO; sum_check_rounds as usize];
+        // for i in 0..sum_check_rounds as usize {
+        //     let mut a = transcript.read_field_elements(4).unwrap();
+        //     if sum_check_val != (F::ONE + F::ONE) * a[3] + a[2] + a[1] + a[0] {
+        //         println!("Error in round {i}");
+        //         return Err(Error::InvalidPcsOpen("Quarks Sum check failed".to_string()));
+        //     }
+        //     let r = transcript.squeeze_challenge();
+        //     if i == 0 {
+        //         // println!(
+        //         //     "The random value at round 0 of the quarks sum check is {:?}",
+        //         //     r
+        //         // );
+        //     }
+        //     quarks_sum_check_random_points[i] = r;
+        //     sum_check_val = a[3] + a[2] * r + a[1] * r * r + a[0] * r * r * r;
+        // }
+
+        // //Reading values
+        // let circuit11_eval = transcript.read_field_element().unwrap();
+        // let circuit21_eval = transcript.read_field_element().unwrap();
+        // let circuit31_eval = transcript.read_field_element().unwrap();
+        // let circuit41_eval = transcript.read_field_element().unwrap();
+
+        // let circuit1_even_eval = transcript.read_field_element().unwrap();
+        // let circuit2_even_eval = transcript.read_field_element().unwrap();
+        // let circuit3_even_eval = transcript.read_field_element().unwrap();
+        // let circuit4_even_eval = transcript.read_field_element().unwrap();
+
+        // let circuit1_odd_eval = transcript.read_field_element().unwrap();
+        // let circuit2_odd_eval = transcript.read_field_element().unwrap();
+        // let circuit3_odd_eval = transcript.read_field_element().unwrap();
+        // let circuit4_odd_eval = transcript.read_field_element().unwrap();
+
+        // //compute eq_random
+        // let mut eq_random_value = F::ONE;
+        // for i in 0..quarks_binding_variables.len() {
+        //     eq_random_value *= (F::ONE - quarks_binding_variables[i])
+        //         * (F::ONE - quarks_sum_check_random_points[i])
+        //         + quarks_binding_variables[i] * quarks_sum_check_random_points[i];
+        // }
+
+        // let mut final_value =
+        //     quarks_random_combiner[0] * (circuit11_eval - circuit1_even_eval * circuit1_odd_eval);
+        // final_value +=
+        //     quarks_random_combiner[1] * (circuit21_eval - circuit2_even_eval * circuit2_odd_eval);
+        // final_value +=
+        //     quarks_random_combiner[2] * (circuit31_eval - circuit3_even_eval * circuit3_odd_eval);
+        // final_value +=
+        //     quarks_random_combiner[3] * (circuit41_eval - circuit4_even_eval * circuit4_odd_eval);
+
+        // final_value *= eq_random_value;
+
+        // if sum_check_val != final_value {
+        //     println!("Error in final check of quarks sum-check");
+        //     return Err(Error::InvalidPcsOpen("Sum check failed".to_string()));
+        // }
+
+        // /*END OF QUARKS SUM_CHECK VERIFICATION */
+        // let r = transcript.squeeze_challenge();
+        // let mut circuit_eval_point = quarks_sum_check_random_points[1..].to_vec();
+        // circuit_eval_point.push(r);
+
+        // let h_row_eval = transcript.read_field_element().unwrap();
+        // let h_erow_eval2 = transcript.read_field_element().unwrap();
+        // let read_ts_row_eval = transcript.read_field_element().unwrap();
+        // let final_ts_row_eval = transcript.read_field_element().unwrap();
+        // let h_col_eval = transcript.read_field_element().unwrap();
+        // let h_ecol_eval2 = transcript.read_field_element().unwrap();
+        // let read_ts_col_eval = transcript.read_field_element().unwrap();
+        // let final_ts_col_eval = transcript.read_field_element().unwrap();
+
+        // /*Computing Circuit10 and Circuit20 evaluations */
+        // let mut row_idx_value = F::ZERO;
+        // for i in 0..circuit_eval_point.len() - 1 {
+        //     row_idx_value +=
+        //         F::from_u128(1 << i) * circuit_eval_point[circuit_eval_point.len() - 1 - i];
+        // }
+        // let mut extend_first_sum_check_random_points = vec![F::ZERO; circuit_eval_point.len() - 1];
+        // let extend_length = circuit_eval_point.len() - 1 - first_sum_check_random_points.len();
+        // for i in 0..circuit_eval_point.len() - 1 {
+        //     if i >= extend_length {
+        //         extend_first_sum_check_random_points[i] =
+        //             first_sum_check_random_points[i - extend_length];
+        //     }
+        // }
+        // let val = eq_eval_random(
+        //     &extend_first_sum_check_random_points,
+        //     &circuit_eval_point[1..].to_vec(),
+        // );
+
+        // let value1 = row_idx_value + gamma_tau[0] * val - gamma_tau[1];
+        // let value2 = h_row_eval
+        //     + gamma_tau[0] * h_erow_eval2
+        //     + gamma_tau[0] * gamma_tau[0] * (read_ts_row_eval + F::ONE)
+        //     - gamma_tau[1];
+        // let circuit10_eval2 =
+        //     (F::ONE - circuit_eval_point[0]) * value1 + circuit_eval_point[0] * value2;
+
+        // let value2 =
+        //     row_idx_value + gamma_tau[0] * val + gamma_tau[0] * gamma_tau[0] * final_ts_row_eval
+        //         - gamma_tau[1];
+        // let value1 = h_row_eval
+        //     + gamma_tau[0] * h_erow_eval2
+        //     + gamma_tau[0] * gamma_tau[0] * read_ts_row_eval
+        //     - gamma_tau[1];
+        // let circuit20_eval2 =
+        //     (F::ONE - circuit_eval_point[0]) * value1 + circuit_eval_point[0] * value2;
+
+        // /*End Of Computing Circuit10 and Circuit20 evaluations */
+        // /*Computing Circuit30 and Circuit40 evaluations */
+        // let mut extend_u = vec![F::ZERO; circuit_eval_point.len() - 1];
+        // let extend_length = circuit_eval_point.len() - 1 - u.len();
+        // for i in 0..circuit_eval_point.len() - 1 {
+        //     if i >= extend_length {
+        //         extend_u[i] = u[i - extend_length];
+        //     }
+        // }
+        // let val = eq_eval_random(&extend_u, &circuit_eval_point[1..].to_vec());
+
+        // let value1 = row_idx_value + gamma_tau[0] * val - gamma_tau[1];
+        // let value2 = h_col_eval
+        //     + gamma_tau[0] * h_ecol_eval2
+        //     + gamma_tau[0] * gamma_tau[0] * (read_ts_col_eval + F::ONE)
+        //     - gamma_tau[1];
+        // let circuit30_eval2 =
+        //     (F::ONE - circuit_eval_point[0]) * value1 + circuit_eval_point[0] * value2;
+        // //assert_eq!(circuit30_eval, test_value, "Circuit1 test values not matching");
+
+        // let value2 =
+        //     row_idx_value + gamma_tau[0] * val + gamma_tau[0] * gamma_tau[0] * final_ts_col_eval
+        //         - gamma_tau[1];
+        // let value1 = h_col_eval
+        //     + gamma_tau[0] * h_ecol_eval2
+        //     + gamma_tau[0] * gamma_tau[0] * read_ts_col_eval
+        //     - gamma_tau[1];
+        // let circuit40_eval2 =
+        //     (F::ONE - circuit_eval_point[0]) * value1 + circuit_eval_point[0] * value2;
+
+        // /*End Of Computing Circuit30 and Circuit40 evaluations */
+        // let circuit11_eval2 = transcript.read_field_element().unwrap();
+        // let circuit21_eval2 = transcript.read_field_element().unwrap();
+        // let circuit31_eval2 = transcript.read_field_element().unwrap();
+        // let circuit41_eval2 = transcript.read_field_element().unwrap();
+
+        // //Verification of odd and even evals
+        // let quarks_sum_check_msb = quarks_sum_check_random_points[0];
+        // let circuit1_eval2 = (F::ONE - quarks_sum_check_msb) * circuit10_eval2
+        //     + quarks_sum_check_msb * circuit11_eval2;
+        // let circuit2_eval2 = (F::ONE - quarks_sum_check_msb) * circuit20_eval2
+        //     + quarks_sum_check_msb * circuit21_eval2;
+        // let circuit3_eval2 = (F::ONE - quarks_sum_check_msb) * circuit30_eval2
+        //     + quarks_sum_check_msb * circuit31_eval2;
+        // let circuit4_eval2 = (F::ONE - quarks_sum_check_msb) * circuit40_eval2
+        //     + quarks_sum_check_msb * circuit41_eval2;
+
+        // let circuit1_eval1 = (F::ONE - r) * circuit1_even_eval + r * circuit1_odd_eval;
+        // let circuit2_eval1 = (F::ONE - r) * circuit2_even_eval + r * circuit2_odd_eval;
+        // let circuit3_eval1 = (F::ONE - r) * circuit3_even_eval + r * circuit3_odd_eval;
+        // let circuit4_eval1 = (F::ONE - r) * circuit4_even_eval + r * circuit4_odd_eval;
+
+        // assert_eq!(
+        //     circuit1_eval1, circuit1_eval2,
+        //     "circuit values not matching"
+        // );
+        // assert_eq!(
+        //     circuit2_eval1, circuit2_eval2,
+        //     "circuit values not matching"
+        // );
+        // assert_eq!(
+        //     circuit3_eval1, circuit3_eval2,
+        //     "circuit values not matching"
+        // );
+        // assert_eq!(
+        //     circuit4_eval1, circuit4_eval2,
+        //     "circuit values not matching"
+        // );
+
+        // // println!("Verifier here");
+
+        // /*Begin Batch Eval Sum-Check Verification */
+        // let mut point_p_p_prime_eval1 =
+        //     vec![F::ZERO; circuit_eval_point.len() - first_sum_check_random_points.len()];
+        // let p_p_prime_eval_1 = (F::ONE - first_sum_check_random_points[0]) * p_eval
+        //     + first_sum_check_random_points[0] * p_prime_eval;
+        // // println!(
+        // //     "The length of first_sum_check_random_points are {:?}",
+        // //     first_sum_check_random_points.len()
+        // // );
+        // point_p_p_prime_eval1.append(&mut first_sum_check_random_points);
+
+        // let mut point_p_p_prime_eval2 = vec![F::ZERO; circuit_eval_point.len() - 1 - u.len()];
+
+        // // println!("The length of u verfier is {:?}", u.len());
+
+        // point_p_p_prime_eval2.push(F::ONE);
+        // point_p_p_prime_eval2.append(&mut u);
+
+        // let mut point_p_p_prime_eval3 =
+        //     vec![F::ZERO; circuit_eval_point.len() - 1 - x_1.len().ilog2() as usize];
+
+        // // println!("The length of u verfier is {:?}", u.len());
+
+        // point_p_p_prime_eval3.push(F::ZERO);
+        // let mut point_clone = point.to_vec();
+        // point_p_p_prime_eval3.append(&mut point_clone[(x_0.len().ilog2() as usize)..].to_vec());
+        // // println!(
+        // //     "The length of fpoint_p_p_prime_eval1 and point_p_p_prime_eval2 are {:?}, {:?}",
+        // //     point_p_p_prime_eval1.len(),
+        // //     point_p_p_prime_eval2.len()
+        // // );
+
+        // //Need to sample an extra random point to combine values here
+        // let r = transcript.squeeze_challenge(); //The length of second_sum_check_random_points is one less than circuit_eval_point.len()
+        // let mut point_h_erow_ecol_eval1 = vec![r];
+        // // println!(
+        // //     "The length of second_sum_check_random_points are {:?}",
+        // //     second_sum_check_random_points.len()
+        // // );
+        // point_h_erow_ecol_eval1.append(&mut second_sum_check_random_points);
+        // let h_erow_ecol_eval1 = (F::ONE - r) * h_erow_eval1 + r * h_ecol_eval1;
+        // let h_val_eval = (F::ONE - r) * h_val_eval;
+
+        // // circuit_eval_point is the point for h_val_eval, and h_row_col_eval
+        // let h_erow_ecol_eval2 =
+        //     (F::ONE - circuit_eval_point[0]) * h_erow_eval2 + circuit_eval_point[0] * h_ecol_eval2;
+
+        // let h_row_col_eval =
+        //     (F::ONE - circuit_eval_point[0]) * h_row_eval + circuit_eval_point[0] * h_col_eval;
+
+        // let read_final_ts_row_eval = (F::ONE - circuit_eval_point[0]) * read_ts_row_eval
+        //     + circuit_eval_point[0] * final_ts_row_eval;
+
+        // let read_final_ts_col_eval = (F::ONE - circuit_eval_point[0]) * read_ts_col_eval
+        //     + circuit_eval_point[0] * final_ts_col_eval;
+
+        // let sum_check_rounds = circuit_eval_point.len();
+        // let mut batch_sum_check_random_points = vec![F::ZERO; sum_check_rounds];
+
+        // //15 evaluations to be batched in total
+        // let batch_sum_check_random_combiner = transcript.squeeze_challenges(17);
+
+        // let mut sum_check_val = batch_sum_check_random_combiner[0] * p_p_prime_eval_1
+        //     + batch_sum_check_random_combiner[1] * p_prime_at_u
+        //     + batch_sum_check_random_combiner[16] * eval;
+
+        // sum_check_val += batch_sum_check_random_combiner[2] * h_erow_ecol_eval1
+        //     + batch_sum_check_random_combiner[3] * h_erow_ecol_eval2;
+
+        // sum_check_val += batch_sum_check_random_combiner[4] * h_val_eval;
+
+        // sum_check_val += batch_sum_check_random_combiner[5] * read_final_ts_row_eval
+        //     + batch_sum_check_random_combiner[6] * read_final_ts_col_eval;
+
+        // sum_check_val += batch_sum_check_random_combiner[7] * circuit11_eval
+        //     + batch_sum_check_random_combiner[8] * circuit11_eval2;
+
+        // sum_check_val += batch_sum_check_random_combiner[9] * circuit21_eval
+        //     + batch_sum_check_random_combiner[10] * circuit21_eval2;
+
+        // sum_check_val += batch_sum_check_random_combiner[11] * circuit31_eval
+        //     + batch_sum_check_random_combiner[12] * circuit31_eval2;
+
+        // sum_check_val += batch_sum_check_random_combiner[13] * circuit41_eval
+        //     + batch_sum_check_random_combiner[14] * circuit41_eval2;
+
+        // sum_check_val += batch_sum_check_random_combiner[15] * h_row_col_eval;
+
+        // for i in 0..sum_check_rounds as usize {
+        //     let mut a = transcript.read_field_elements(3).unwrap();
+        //     //println!("Verifier side round = {}, elems = {:?}", i, a);
+        //     if sum_check_val != (F::ONE + F::ONE) * a[2] + a[1] + a[0] {
+        //         panic!("Error in round {i} of batch sum-check");
+
+        //         return Err(Error::InvalidPcsOpen("Sum check failed".to_string()));
+        //     }
+        //     let r = transcript.squeeze_challenge();
+        //     batch_sum_check_random_points[i] = r;
+        //     sum_check_val = a[2] + a[1] * r + a[0] * r * r;
+        // }
+        // // let r_temp = transcript.squeeze_challenge();
+        // // println!("Test r at the verifier side is {:?}", r_temp);
+
+        // let p_p_prime_batch_eval = transcript.read_field_element().unwrap();
+        // let h_erow_ecol_batch_eval = transcript.read_field_element().unwrap();
+        // let h_val_batch_eval = transcript.read_field_element().unwrap();
+        // let read_final_ts_row_batch_eval = transcript.read_field_element().unwrap();
+        // let read_final_ts_col_batch_eval = transcript.read_field_element().unwrap();
+        // let circuit11_batch_eval = transcript.read_field_element().unwrap();
+        // let circuit21_batch_eval = transcript.read_field_element().unwrap();
+        // let circuit31_batch_eval = transcript.read_field_element().unwrap();
+        // let circuit41_batch_eval = transcript.read_field_element().unwrap();
+        // let h_row_col_batch_eval = transcript.read_field_element().unwrap();
+
+        // let eq_p_prime_eval1 =
+        //     eq_eval_random(&point_p_p_prime_eval1, &batch_sum_check_random_points);
+        // let eq_p_prime_eval2 =
+        //     eq_eval_random(&point_p_p_prime_eval2, &batch_sum_check_random_points);
+        // let eq_p_prime_eval3 =
+        //     eq_eval_random(&point_p_p_prime_eval3, &batch_sum_check_random_points);
+        // let eq_h_erow_ecol_eval1 =
+        //     eq_eval_random(&point_h_erow_ecol_eval1, &batch_sum_check_random_points);
+        // let eq_circuit_eval = eq_eval_random(&circuit_eval_point, &batch_sum_check_random_points);
+
+        // let eq_quarks_sum_check_eval = eq_eval_random(
+        //     &quarks_sum_check_random_points,
+        //     &batch_sum_check_random_points,
+        // );
+
+        // // a) p_p_prime at (point_p_p_prime_eval1,  p_p_prime_eval_1), (point_p_p_prime_eval2,  p_p_prime_eval_2)
+        // // b) h_erow_ecol at (point_h_erow_ecol_eval1  h_erow_ecol_eval1), (circuit_eval_point,  h_erow_ecol_eval2)
+        // // c) h_val at (point_h_erow_ecol_eval1  h_val_eval)
+        // // d) read_final_ts_row at (circuit_eval_point, read_final_ts_row_eval)
+        // // e) read_final_ts_col at (circuit_eval_point , read_final_ts_col)
+        // // f) circuit11 at (quarks_sum_check_random_points, circuit11_eval1), (circuit_eval_point , circuit11_eval2)
+        // // g) circuit21 at (quarks_sum_check_random_points, circuit21_eval1), (circuit_eval_point , circuit21_eval2)
+        // // h) circuit11 at (quarks_sum_check_random_points, circuit31_eval1), (circuit_eval_point , circuit31_eval2)
+        // // i) circuit21 at (quarks_sum_check_random_points, circuit41_eval1), (circuit_eval_point , circuit41_eval2)
+        // // j) h_row_col at (circuit_eval_point, h_row_col_eval)
+
+        // let mut final_check_val = (batch_sum_check_random_combiner[0] * eq_p_prime_eval1
+        //     + batch_sum_check_random_combiner[1] * eq_p_prime_eval2
+        //     + batch_sum_check_random_combiner[16] * eq_p_prime_eval3)
+        //     * p_p_prime_batch_eval;
+
+        // final_check_val += (batch_sum_check_random_combiner[2] * eq_h_erow_ecol_eval1
+        //     + batch_sum_check_random_combiner[3] * eq_circuit_eval)
+        //     * h_erow_ecol_batch_eval;
+
+        // final_check_val +=
+        //     batch_sum_check_random_combiner[4] * eq_h_erow_ecol_eval1 * h_val_batch_eval;
+
+        // final_check_val += (batch_sum_check_random_combiner[5] * read_final_ts_row_batch_eval
+        //     + batch_sum_check_random_combiner[6] * read_final_ts_col_batch_eval)
+        //     * eq_circuit_eval;
+
+        // final_check_val += (batch_sum_check_random_combiner[7] * eq_quarks_sum_check_eval
+        //     + batch_sum_check_random_combiner[8] * eq_circuit_eval)
+        //     * circuit11_batch_eval;
+
+        // final_check_val += (batch_sum_check_random_combiner[9] * eq_quarks_sum_check_eval
+        //     + batch_sum_check_random_combiner[10] * eq_circuit_eval)
+        //     * circuit21_batch_eval;
+
+        // final_check_val += (batch_sum_check_random_combiner[11] * eq_quarks_sum_check_eval
+        //     + batch_sum_check_random_combiner[12] * eq_circuit_eval)
+        //     * circuit31_batch_eval;
+
+        // final_check_val += (batch_sum_check_random_combiner[13] * eq_quarks_sum_check_eval
+        //     + batch_sum_check_random_combiner[14] * eq_circuit_eval)
+        //     * circuit41_batch_eval;
+
+        // final_check_val +=
+        //     batch_sum_check_random_combiner[15] * eq_circuit_eval * h_row_col_batch_eval;
+
+        // if sum_check_val != final_check_val {
+        //     panic!("Error in final check of batch eval sum-check");
+        //     return Err(Error::InvalidPcsOpen("Sum check failed".to_string()));
+        // }
+        // /*End OF Batch Eval Sum-Check */
+        // // println!("Verifier here just after Batch Eval Sum-Check");
+
+        // // TEST CODE
+
+        // // let comm_1 = transcript.read_commitment().unwrap();
+        // // let comm_2 = transcript.read_commitment().unwrap();
+        // // let r_1 = transcript.read_field_element().unwrap();
+        // // let r_2 = transcript.read_field_element().unwrap();
+        // // let point = transcript
+        // //     .read_field_elements(vp.basefold.num_vars)
+        // //     .unwrap();
+        // // let evals = transcript.read_field_elements(2).unwrap();
+
+        // let basefold_batch_open_ramdom_combiners = transcript.squeeze_challenges(10);
+
+        // let mut comms = Vec::<Output<H>>::with_capacity(10);
+        // comms.push(p_p_prime_commit);
+        // comms.push(h_erow_ecol_commit);
+        // comms.push(vp.trusted_commit.clone());
+        // comms.push(circuit_11_commit);
+        // comms.push(circuit_21_commit);
+        // comms.push(circuit_31_commit);
+        // comms.push(circuit_41_commit);
+
+        // let mut evals = Vec::<F>::with_capacity(10);
+        // evals.push(p_p_prime_batch_eval);
+        // evals.push(h_erow_ecol_batch_eval);
+        // evals.push(h_val_batch_eval);
+        // evals.push(h_row_col_batch_eval);
+        // evals.push(read_final_ts_row_batch_eval);
+        // evals.push(read_final_ts_col_batch_eval);
+        // evals.push(circuit11_batch_eval);
+        // evals.push(circuit21_batch_eval);
+        // evals.push(circuit31_batch_eval);
+        // evals.push(circuit41_batch_eval);
+
+        // batch_sum_check_random_points.reverse();
+
+        // basefold_batch_verify::<F, H, S>(
+        //     &vp.basefold,
+        //     &basefold_batch_open_ramdom_combiners,
+        //     &batch_sum_check_random_points,
+        //     &comms,
+        //     &evals,
+        //     transcript,
+        // )
+
+        Ok(())
     }
 
     fn batch_verify<'a>(
