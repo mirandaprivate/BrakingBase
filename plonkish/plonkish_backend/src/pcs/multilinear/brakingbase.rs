@@ -1331,8 +1331,7 @@ where
         println!("First sum check verifier done.");
         //transcript.write_field_elements([h_eval, p_eval, p_prime_eval].iter());
 
-        let h_erow_commit = transcript.read_commitment().unwrap();
-        let h_ecol_commit = transcript.read_commitment().unwrap();
+        let h_erow_ecol_commit = transcript.read_commitment().unwrap();
 
         /*SECOND SUM_CHECK VERIFICATION */
         let mut sum_check_val = h_eval;
