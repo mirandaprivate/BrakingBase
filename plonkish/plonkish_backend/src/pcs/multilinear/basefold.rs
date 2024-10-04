@@ -59,7 +59,7 @@ pub struct Type1Polynomial<F: PrimeField> {
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, Eq, PartialEq)]
-struct Type2Polynomial<F: PrimeField> {
+pub struct Type2Polynomial<F: PrimeField> {
     pub poly: Vec<F>,
 }
 
@@ -78,23 +78,24 @@ pub struct BasefoldParams<F: PrimeField> {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BasefoldProverParams<F: PrimeField> {
-    log_rate: usize,
-    table_w_weights: Vec<Vec<(F, F)>>,
-    table: Vec<Vec<F>>,
-    num_verifier_queries: usize,
-    num_vars: usize,
-    num_rounds: usize,
-    rs_basecode: bool,
+    pub log_rate: usize,
+    pub table_w_weights: Vec<Vec<(F, F)>>,
+    pub table: Vec<Vec<F>>,
+    pub num_verifier_queries: usize,
+    pub num_vars: usize,
+    pub num_rounds: usize,
+    pub rs_basecode: bool,
+    pub rng: ChaCha8Rng,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BasefoldVerifierParams<F: PrimeField> {
-    rng: ChaCha8Rng,
-    num_vars: usize,
-    log_rate: usize,
-    num_verifier_queries: usize,
+    pub rng: ChaCha8Rng,
+    pub num_vars: usize,
+    pub log_rate: usize,
+    pub num_verifier_queries: usize,
     num_rounds: usize,
-    table_w_weights: Vec<Vec<(F, F)>>,
+    pub table_w_weights: Vec<Vec<(F, F)>>,
     rs_basecode: bool,
 }
 
@@ -135,7 +136,7 @@ impl<F: PrimeField, H: Hash> PartialEq for BasefoldCommitment<F, H> {
 
 impl<F: PrimeField, H: Hash> Eq for BasefoldCommitment<F, H> {}
 
-impl<F: PrimeField, H: Hash>  BasefoldCommitment<F, H> {
+impl<F: PrimeField, H: Hash> BasefoldCommitment<F, H> {
     pub fn codeword_tree(&self) -> &Vec<Vec<Output<H>>> {
         &self.codeword_tree
     }
@@ -270,6 +271,7 @@ where
                 num_vars: param.num_vars,
                 num_rounds: rounds,
                 rs_basecode: param.rs_basecode,
+                rng: param.rng.clone(),
             },
             BasefoldVerifierParams {
                 rng: param.rng.clone(),
@@ -971,6 +973,37 @@ where
     }
 }
 
+fn batch_merkelize<F: PrimeField, H: Hash>(vecs: &Vec<Type1Polynomial<F>>) -> Vec<Vec<Output<H>>> {
+    let temp: Vec<usize> = (0..vecs[0].poly.len()).collect();
+    let mut hashes: Vec<Output<H>> = (0..vecs[0].poly.len())
+        .collect::<Vec<usize>>()
+        .par_iter()
+        .map(|&j| {
+            let mut hasher = H::new();
+            (0..vecs.len()).for_each(|i| hasher.update_field_element(&(vecs[i]).poly[j]));
+            hasher.finalize_fixed()
+        })
+        .collect();
+
+    let mut merkle_tree = Vec::<Vec<Output<H>>>::new();
+    let depth = hashes.len().ilog2();
+    merkle_tree.push(hashes);
+    for i in 1..=depth {
+        hashes = merkle_tree[(i - 1) as usize]
+            .par_chunks_exact(2)
+            .map(|elems| {
+                let mut hasher = H::new();
+                hasher.update(&elems[0]);
+                hasher.update(&elems[1]);
+                hasher.finalize_fixed()
+            })
+            .collect();
+        merkle_tree.push(hashes);
+    }
+
+    merkle_tree
+}
+
 #[test]
 fn time_rs_code() {
     use blake2::Blake2s256;
@@ -990,7 +1023,7 @@ fn time_rs_code() {
         64,
     );
 }
-fn encode_rs_basecode<F: PrimeField>(
+pub(super) fn encode_rs_basecode<F: PrimeField>(
     poly: &Type2Polynomial<F>,
     rate: usize,
     message_size: usize,
@@ -1108,7 +1141,7 @@ pub fn evaluate_over_foldable_domain<F: PrimeField>(
     }
 }
 
-pub fn evaluate_over_foldable_domain_2<F: PrimeField>(
+pub(super) fn evaluate_over_foldable_domain_2<F: PrimeField>(
     log_chunk_size: usize,
     log_rate: usize,
     mut coeffs: Type2Polynomial<F>,
@@ -1191,7 +1224,9 @@ pub fn log2_strict(n: usize) -> usize {
     res as usize
 }
 
-fn merkelize<F: PrimeField, H: Hash>(values: &Type1Polynomial<F>) -> Vec<Vec<Output<H>>> {
+pub(super) fn merkelize<F: PrimeField, H: Hash>(
+    values: &Type1Polynomial<F>,
+) -> Vec<Vec<Output<H>>> {
     let log_v = log2_strict(values.poly.len());
     let mut tree = Vec::with_capacity(log_v);
     let mut hashes = vec![Output::<H>::default(); (values.poly.len() >> 1)];
@@ -1280,7 +1315,7 @@ fn build_eq_x_r_helper<F: PrimeField>(r: &[F], buf: &mut Vec<F>) {
     }
 }
 
-fn sum_check_first_round<F: PrimeField>(
+pub fn sum_check_first_round<F: PrimeField>(
     mut eq: &mut Type1Polynomial<F>,
     mut bh_values: &mut Type1Polynomial<F>,
 ) -> Vec<F> {
@@ -1453,14 +1488,12 @@ fn time_sumcheck() {
     let mut eq = build_eq_x_r_vec::<Mersenne127>(&point).unwrap();
     let now = Instant::now();
     (0..60).into_par_iter().for_each(|x| {
-
-
         let oracles = sum_check(evals.clone(), point.clone(), i, i, eq.clone());
     });
     println!("now.elased() {:?}", now.elapsed());
 }
 
-fn sum_check_challenge_round<F: PrimeField>(
+pub fn sum_check_challenge_round<F: PrimeField>(
     mut eq: &mut Type1Polynomial<F>,
     mut bh_values: &mut Type1Polynomial<F>,
     challenge: F,
@@ -1475,7 +1508,7 @@ fn sum_check_challenge_round<F: PrimeField>(
     p_i(&bh_values, &eq)
 }
 
-fn basefold_one_round_by_interpolation_weights<F: PrimeField>(
+pub(super) fn basefold_one_round_by_interpolation_weights<F: PrimeField>(
     table: &Vec<Vec<(F, F)>>,
     table_offset: usize,
     values: &Type1Polynomial<F>,
@@ -1579,7 +1612,7 @@ fn get_merkle_path<H: Hash, F: PrimeField>(
     return queries;
 }
 
-fn write_merkle_path<H: Hash, F: PrimeField>(
+pub(super) fn write_merkle_path<H: Hash, F: PrimeField>(
     tree: &Vec<Vec<Output<H>>>,
     mut x_index: usize,
     transcript: &mut impl TranscriptWrite<Output<H>, F>,
@@ -1602,7 +1635,7 @@ fn write_merkle_path<H: Hash, F: PrimeField>(
     }
 }
 
-fn authenticate_merkle_path<H: Hash, F: PrimeField>(
+pub(super) fn authenticate_merkle_path<H: Hash, F: PrimeField>(
     path: &Vec<Vec<Output<H>>>,
     leaves: (F, F),
     mut x_index: usize,
@@ -1630,7 +1663,7 @@ fn authenticate_merkle_path<H: Hash, F: PrimeField>(
     }
 }
 
-fn authenticate_merkle_path_root<H: Hash, F: PrimeField>(
+pub(super) fn authenticate_merkle_path_root<H: Hash, F: PrimeField>(
     path: &Vec<Vec<Output<H>>>,
     leaves: (F, F),
     mut x_index: usize,
@@ -1883,7 +1916,7 @@ mod test {
 
     impl BasefoldExtParams for Five {
         fn get_reps() -> usize {
-            return 33;
+            return 656;
         }
 
         fn get_rate() -> usize {
@@ -2257,7 +2290,6 @@ fn virtual_open<F: PrimeField>(
         eq_r_ * no.poly[0]
     );
 }
-
 
 //outputs (trees, sumcheck_oracles, oracles, bh_evals, eq, eval)
 fn commit_phase<F: PrimeField, H: Hash>(
