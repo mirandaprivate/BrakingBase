@@ -59,7 +59,7 @@ pub struct Type1Polynomial<F: PrimeField> {
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, Eq, PartialEq)]
-struct Type2Polynomial<F: PrimeField> {
+pub struct Type2Polynomial<F: PrimeField> {
     pub poly: Vec<F>,
 }
 

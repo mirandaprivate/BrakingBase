@@ -77,7 +77,7 @@ pub struct BrakingbaseParams<F: PrimeField, H: Hash> {
     basefold: BasefoldParams<F>,
     basefold_prover_params: BasefoldProverParams<F>,
     basefold_verifier_params: BasefoldVerifierParams<F>,
-    trusted_commits: Vec<BasefoldCommitment<F, H>>,
+    trusted_commit: BasefoldBatchCommitment<F, H>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -90,7 +90,7 @@ pub struct BrakingbaseProverParams<F: PrimeField, H: Hash> {
     parity_check_matrix: ParityCheckMatrix<F>,
     basefold_poly_size: usize,
     basefold: BasefoldProverParams<F>,
-    trusted_commits: Vec<BasefoldCommitment<F, H>>,
+    trusted_commit: BasefoldBatchCommitment<F, H>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -103,7 +103,7 @@ pub struct BrakingbaseVerifierParams<F: PrimeField, H: Hash> {
     brakedown_codeword_len: usize,
     basefold_poly_size: usize,
     basefold: BasefoldVerifierParams<F>,
-    trusted_commits: Vec<Output<H>>, //Vec<BasefoldCommitment<F, H>>, // replace by Output<H>
+    trusted_commit: Output<H>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -112,6 +112,14 @@ pub struct BrakingbaseCommitment<F: PrimeField, H: Hash> {
     rows: Vec<F>,
     intermediate_hashes: Vec<Output<H>>,
     root: Output<H>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(bound(serialize = "F: Serialize", deserialize = "F: DeserializeOwned"))]
+pub struct BasefoldBatchCommitment<F: PrimeField, H: Hash> {
+    pub codewords: Vec<Type1Polynomial<F>>,
+    pub codeword_tree: Vec<Vec<Output<H>>>,
+    pub bh_evals: Vec<Type1Polynomial<F>>,
 }
 
 impl<F: PrimeField, H: Hash> BrakingbaseProverParams<F, H> {
@@ -182,7 +190,7 @@ where
         assert!(poly_size.is_power_of_two());
         let num_vars = poly_size.ilog2() as usize;
 
-        // Generate the Brakedown code. brakedown contains E_0 as well as H implicitly.
+        // Generate the Brakedown code.
         let brakedown_num_rows = 4 * num_vars.next_power_of_two();
         let brakedown = Brakedown::new::<S>(
             num_vars,
@@ -208,83 +216,78 @@ where
         // );
 
         // Generate BaseFold parameters by running BaseFold's setup algo.
-        let basefold_poly_size = (2 * parity_check_matrix.row.len()).next_power_of_two();
+        let len = parity_check_matrix.val.len();
+        let basefold_poly_size = len.next_power_of_two();
         let mut rng2 = ChaCha8Rng::from_entropy();
         let basefold = Basefold::<F, H, S>::setup(basefold_poly_size, batch_size, rng2).unwrap();
 
         // Compute the trusted commits
         let (basefold_prover_params, basefold_verifier_params) =
             Basefold::<F, H, S>::trim(&basefold, poly_size, batch_size).unwrap();
+
         let mut val = parity_check_matrix.clone().val;
         val.resize(basefold_poly_size, F::ZERO);
-        let mut row_col = vec![F::ZERO; basefold_poly_size];
 
-        for i in 0..parity_check_matrix.row.len() {
-            row_col[i] = F::try_from(parity_check_matrix.row[i] as u64).unwrap();
-        }
-        for i in parity_check_matrix.row.len()..basefold_poly_size / 2 {
-            row_col[i] = row_col[0];
-        }
-        let offset = basefold_poly_size / 2;
-        for i in 0..parity_check_matrix.col.len() {
-            row_col[offset + i] = F::try_from(parity_check_matrix.col[i] as u64).unwrap();
-        }
-        for i in parity_check_matrix.col.len()..basefold_poly_size / 2 {
-            row_col[offset + i] = row_col[offset];
-        }
+        let mut row: Vec<F> = parity_check_matrix
+            .row
+            .par_iter()
+            .map(|&elem| F::try_from(elem as u64).unwrap())
+            .collect();
+        row.resize(basefold_poly_size, row[0]);
 
-        let (mut read_ts_row, mut final_ts_row, mut read_ts_col, mut final_ts_col) = get_timestamps(
-            &row_col[0..offset],
-            &row_col[offset..],
-            2 * brakedown_row_len,
-            parity_check_matrix.row.len(),
-        );
+        // for i in 0..parity_check_matrix.row.len() {
+        //     row[i] = F::try_from(parity_check_matrix.row[i] as u64).unwrap();
+        // }
+        // for i in parity_check_matrix.row.len()..basefold_poly_size / 2 {
+        //     row_col[i] = row_col[0];
+        // }
+
+        let mut col: Vec<F> = parity_check_matrix
+            .col
+            .par_iter()
+            .map(|&elem| F::try_from(elem as u64).unwrap())
+            .collect();
+        col.resize(basefold_poly_size, row[0]);
+
+        // let offset = basefold_poly_size / 2;
+        // for i in 0..parity_check_matrix.col.len() {
+        //     row_col[offset + i] = F::try_from(parity_check_matrix.col[i] as u64).unwrap();
+        // }
+        // for i in parity_check_matrix.col.len()..basefold_poly_size / 2 {
+        //     row_col[offset + i] = row_col[offset];
+        // }
+
+        let (mut read_ts_row, mut final_ts_row, mut read_ts_col, mut final_ts_col) =
+            get_timestamps(&row, &col, 2 * brakedown_row_len, len);
 
         // println!("The read_ts_row.len() is {:?}", read_ts_row.len());
-        // println!("basefold_poly_size / 2 is {:?}", basefold_poly_size / 2);
+        // println!("basefold_poly_size is {:?}", basefold_poly_size);
         // panic!();
 
-        // read_ts_row.resize(basefold_poly_size / 2, F::ZERO);
-        // read_ts_col.resize(basefold_poly_size / 2, F::ZERO);
+        read_ts_row.resize(basefold_poly_size, F::ZERO);
+        read_ts_col.resize(basefold_poly_size, F::ZERO);
+
         final_ts_row.resize(basefold_poly_size / 2, F::ZERO);
         final_ts_col.resize(basefold_poly_size / 2, F::ZERO);
-        read_ts_row.extend(final_ts_row);
-        read_ts_col.extend(final_ts_col);
 
-        let mut trusted_commits = Vec::<BasefoldCommitment<F, H>>::new();
-        reverse_index_bits_in_place(&mut val); // Basefold commit accepts type 2 poly. Converts type 1 (our rep) to type 2.
-        trusted_commits.push(
-            Basefold::<F, H, S>::commit(
-                &basefold_prover_params,
-                &MultilinearPolynomial::<F>::new(val),
-            )
-            .unwrap(),
-        );
-        reverse_index_bits_in_place(&mut row_col);
-        trusted_commits.push(
-            Basefold::<F, H, S>::commit(
-                &basefold_prover_params,
-                &MultilinearPolynomial::<F>::new(row_col),
-            )
-            .unwrap(),
-        );
+        for i in 1..basefold_poly_size / (2 * final_ts_row.len()) {
+            final_ts_row.extend(final_ts_row.clone());
+        }
+        for i in 0..basefold_poly_size / (2 * final_ts_col.len()) {
+            final_ts_row.extend(final_ts_col.clone());
+        }
+        let final_ts_row_col = final_ts_row;
 
-        reverse_index_bits_in_place(&mut read_ts_row);
-        trusted_commits.push(
-            Basefold::<F, H, S>::commit(
-                &basefold_prover_params,
-                &MultilinearPolynomial::<F>::new(read_ts_row),
-            )
-            .unwrap(),
-        );
-        reverse_index_bits_in_place(&mut read_ts_col);
-        trusted_commits.push(
-            Basefold::<F, H, S>::commit(
-                &basefold_prover_params,
-                &MultilinearPolynomial::<F>::new(read_ts_col),
-            )
-            .unwrap(),
-        );
+        let mut polys = Vec::<Vec<F>>::with_capacity(6);
+        polys.push(val);
+        polys.push(row);
+        polys.push(col);
+        polys.push(read_ts_row);
+        polys.push(read_ts_col);
+        polys.push(final_ts_row_col);
+
+        // Call batch commit
+        let trusted_commit = basefold_batch_commit::<F, H, S>(&basefold_prover_params, &mut polys);
 
         Ok(BrakingbaseParams {
             num_vars: num_vars,
@@ -298,7 +301,7 @@ where
             basefold: basefold,
             basefold_prover_params: basefold_prover_params,
             basefold_verifier_params: basefold_verifier_params,
-            trusted_commits: trusted_commits,
+            trusted_commit: trusted_commit,
         })
     }
 
@@ -307,16 +310,6 @@ where
         poly_size: usize,
         batch_size: usize,
     ) -> Result<(Self::ProverParam, Self::VerifierParam), Error> {
-        // let (basefold_prover_params, basefold_verifier_params) = Basefold::<F, H, S>
-        //     ::trim(&param.basefold, poly_size, batch_size)
-        //     .unwrap();
-
-        let mut trusted_commits = Vec::<Output<H>>::new();
-        for i in 0..param.trusted_commits.len() {
-            // let a = param.trusted_commits[i].codeword_tree_root().clone();
-            trusted_commits.push(param.trusted_commits[i].codeword_tree_root().clone());
-        }
-
         Ok((
             BrakingbaseProverParams {
                 num_vars: param.num_vars,
@@ -326,7 +319,7 @@ where
                 parity_check_matrix: param.partity_check_matrix.clone(),
                 basefold_poly_size: param.basefold_poly_size,
                 basefold: param.basefold_prover_params.clone(),
-                trusted_commits: param.trusted_commits.clone(),
+                trusted_commit: param.trusted_commit.clone(),
             },
             BrakingbaseVerifierParams {
                 num_vars: param.num_vars,
@@ -336,7 +329,14 @@ where
                 brakedown_codeword_len: param.brakedown_codeword_len,
                 basefold_poly_size: param.basefold_poly_size,
                 basefold: param.basefold_verifier_params.clone(),
-                trusted_commits: trusted_commits,
+                trusted_commit: param
+                    .trusted_commit
+                    .codeword_tree
+                    .last()
+                    .unwrap()
+                    .last()
+                    .unwrap()
+                    .clone(),
             },
         ))
     }
@@ -724,14 +724,10 @@ where
         h_row.resize(h_row.len().next_power_of_two(), h_row[0]);
         h_col.resize(h_col.len().next_power_of_two(), h_col[0]);
 
-        let mut read_ts_row: Vec<F> =
-            pp.trusted_commits[2].bh_evals.poly[0..basefold_poly_size / 2].to_vec();
-        let mut final_ts_row: Vec<F> = pp.trusted_commits[2].bh_evals.poly
-            [basefold_poly_size / 2..basefold_poly_size / 2 + 2 * row_len]
-            .to_vec();
-        let mut read_ts_col: Vec<F> =
-            pp.trusted_commits[3].bh_evals.poly[0..basefold_poly_size / 2].to_vec();
-        let mut final_ts_col: Vec<F> = pp.trusted_commits[3].bh_evals.poly
+        let read_ts_row: Vec<F> = pp.trusted_commit.bh_evals[3].poly;
+        let final_ts_row: Vec<F> = pp.trusted_commit.bh_evals[5].poly[0..2 * row_len].to_vec();
+        let read_ts_col: Vec<F> = pp.trusted_commit.bh_evals[4].poly;
+        let final_ts_col: Vec<F> = pp.trusted_commit.bh_evals[5].poly
             [basefold_poly_size / 2..basefold_poly_size / 2 + 2 * row_len]
             .to_vec();
 
@@ -740,7 +736,6 @@ where
         let mut circuit_3 = vec![F::ZERO; 2 * basefold_poly_size];
         let mut circuit_4 = vec![F::ZERO; 2 * basefold_poly_size];
 
-        // Check range upper bounds with Vineet
         // Lots of 1s at the end. Verifier will have to take care of them.
 
         let mut final_ts_new = vec![F::ZERO; final_ts_row.len()];
@@ -2181,8 +2176,8 @@ where
 }
 
 pub fn get_timestamps<F: PrimeField>(
-    row: &[F],
-    col: &[F],
+    row: &Vec<F>,
+    col: &Vec<F>,
     memory_size: usize,
     actual_reads: usize,
 ) -> (Vec<F>, Vec<F>, Vec<F>, Vec<F>) {
@@ -3105,19 +3100,31 @@ fn create_grand_prod_circ<F: PrimeField>(circuit: &mut Vec<F>) {
     }
 }
 
-pub fn basefold_batch_commit<F, H, S>(pp: &BasefoldProverParams<F>, polys: &mut Vec<Vec<F>>)
+pub fn basefold_batch_commit<F, H, S>(
+    pp: &BasefoldProverParams<F>,
+    polys: &mut Vec<Vec<F>>,
+) -> BasefoldBatchCommitment<F, H>
 where
     F: PrimeField + Serialize + DeserializeOwned,
     H: Hash,
     S: BrakingbaseSpec,
 {
-    let polys_type_2: Vec<Type2Polynomial<F>> = polys
-        .into_iter()
-        .map(|poly| Type2Polynomial { poly: poly })
-        .collect();
-    let codewords: Vec<Vec<F>> = polys_type_2
+    let bh_evals: Vec<Type1Polynomial<F>> = polys
         .par_iter()
-        .map(|&poly| {
+        .map(|poly| Type1Polynomial {
+            poly: poly.to_vec(),
+        })
+        .collect();
+
+    let polys_type_2: Vec<Type2Polynomial<F>> = polys
+        .par_iter()
+        .map(|poly| Type2Polynomial {
+            poly: poly.to_vec(),
+        })
+        .collect();
+    let codewords: Vec<Type1Polynomial<F>> = polys_type_2
+        .par_iter()
+        .map(|poly| {
             if (pp.rs_basecode) {
                 let mut basecode = basefold::encode_rs_basecode(
                     &poly,
@@ -3133,12 +3140,17 @@ where
                     &pp.table,
                 )
             } else {
-                basefold::evaluate_over_foldable_domain(pp.log_rate, poly, &pp.table)
+                basefold::evaluate_over_foldable_domain(pp.log_rate, poly.clone(), &pp.table)
             }
         })
         .collect();
 
-    let codeword_trees = batch_merkelize(&codewords);
+    let codeword_tree = batch_merkelize::<F, H>(&codewords);
+    BasefoldBatchCommitment {
+        codewords: codewords,
+        codeword_tree: codeword_tree,
+        bh_evals: bh_evals,
+    }
 }
 
 fn batch_merkelize<F: PrimeField, H: Hash>(vecs: &Vec<Type1Polynomial<F>>) -> Vec<Vec<Output<H>>> {
@@ -3146,9 +3158,9 @@ fn batch_merkelize<F: PrimeField, H: Hash>(vecs: &Vec<Type1Polynomial<F>>) -> Ve
     let mut hashes: Vec<Output<H>> = (0..vecs[0].poly.len())
         .collect::<Vec<usize>>()
         .par_iter()
-        .map(|&j| {
+        .map(|j| {
             let mut hasher = H::new();
-            (0..vecs.len()).for_each(|i| hasher.update_field_element(&(vecs[i]).poly[j]));
+            (0..vecs.len()).for_each(|i| hasher.update_field_element(&(vecs[i]).poly[*j]));
             hasher.finalize_fixed()
         })
         .collect();
