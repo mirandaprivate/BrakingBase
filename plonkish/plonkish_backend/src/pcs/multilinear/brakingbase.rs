@@ -9,6 +9,7 @@ use crate::piop::sum_check::{
 };
 use crate::piop::GKR::gkr::{gkr_prover, gkr_verifier};
 use crate::piop::GKR::gpc::grand_product_circuits;
+use crate::piop::GKR::helper::{input_layer_check1, input_layer_check2};
 use crate::util::code::{self, ParityCheckMatrix};
 use crate::{
     pcs::{
@@ -205,18 +206,6 @@ where
         let num_brakedown_queries = brakedown.num_column_opening();
         let parity_check_matrix = brakedown.parity_check_matrix();
 
-        // println!(
-        //     "Len of parity check matrix and its log = {} {}",
-        //     parity_check_matrix.row.len(),
-        //     parity_check_matrix.row.len().next_power_of_two().ilog2()
-        // );
-
-        // println!(
-        //     "row_len = {}, parity_check_matrix_len = {}",
-        //     brakedown_row_len,
-        //     parity_check_matrix.row.len(),
-        // );
-
         // Generate BaseFold parameters by running BaseFold's setup algo.
         let len = parity_check_matrix.val.len();
         let basefold_poly_size = len.next_power_of_two();
@@ -237,13 +226,6 @@ where
             .collect();
         row.resize(basefold_poly_size, row[0]);
 
-        // for i in 0..parity_check_matrix.row.len() {
-        //     row[i] = F::try_from(parity_check_matrix.row[i] as u64).unwrap();
-        // }
-        // for i in parity_check_matrix.row.len()..basefold_poly_size / 2 {
-        //     row_col[i] = row_col[0];
-        // }
-
         let mut col: Vec<F> = parity_check_matrix
             .col
             .par_iter()
@@ -251,20 +233,8 @@ where
             .collect();
         col.resize(basefold_poly_size, row[0]);
 
-        // let offset = basefold_poly_size / 2;
-        // for i in 0..parity_check_matrix.col.len() {
-        //     row_col[offset + i] = F::try_from(parity_check_matrix.col[i] as u64).unwrap();
-        // }
-        // for i in parity_check_matrix.col.len()..basefold_poly_size / 2 {
-        //     row_col[offset + i] = row_col[offset];
-        // }
-
         let (mut read_ts_row, mut final_ts_row, mut read_ts_col, mut final_ts_col) =
             get_timestamps(&row, &col, 2 * brakedown_row_len, len);
-
-        // println!("The read_ts_row.len() is {:?}", read_ts_row.len());
-        // println!("basefold_poly_size is {:?}", basefold_poly_size);
-        // panic!();
 
         read_ts_row.resize(basefold_poly_size, F::ZERO);
         read_ts_col.resize(basefold_poly_size, F::ZERO);
@@ -413,9 +383,9 @@ where
         };
 
         Ok(BrakingbaseCommitment {
-            rows: rows,
-            intermediate_hashes: intermediate_hashes,
-            root: root,
+            rows,
+            intermediate_hashes,
+            root,
         })
     }
 
@@ -509,9 +479,8 @@ where
             temp = temp + h[i] * p_p_prime[i];
         }
         temp = temp - evaluate_poly(&p_p_prime[row_len..2 * row_len].to_vec(), &u);
-        // println!("(p,p')H(u) = {:?}", temp);
         h.resize(2 * row_len, F::ZERO);
-        // let h_clone = h.clone();
+
         let small_p_p_prime = p_p_prime[0..2 * row_len].to_vec();
 
         let p_prime_eval_u = &evaluate_poly(&small_p_p_prime[row_len..].to_vec(), &u);
@@ -525,9 +494,9 @@ where
 
         //TODO 4: Sample two random points here.
         let random_combiners = transcript.squeeze_challenges(2);
-        // println!("random_combiners prover side: {:?}", random_combiners);
 
         let sum_check_rounds = (2 * row_len).next_power_of_two().ilog2() as usize;
+        //rx
         let mut first_sum_check_random_points = vec![F::ZERO; sum_check_rounds];
 
         /*TEST CODE */
@@ -552,7 +521,6 @@ where
         sum_check_val *= random_combiners[0];
 
         //TODO 5: Make a function called first_sum_check_prover(). Call the function here with p_p_prime, mask, H(X,U), the two random points, and transcript as input here.
-
         /* first_sum_check_prover() description: does the entire code of the sum_check (all the rounds) and
         the messages are included in the transcript within the function. This function takes
         transcript as mutable reference.
@@ -593,7 +561,7 @@ where
         println!("Time for first sum-check = {:?}", now.elapsed());
 
         //TODO 3: evaluate h, p, p_prime at first_sum_check_random_points. Shouldn't folding in the sum-check give this?
-        let h_eval = evaluate_poly(&h, &first_sum_check_random_points);
+        // let h_eval = evaluate_poly(&h, &first_sum_check_random_points);
         let p_eval = partial_evaluate_poly(
             &p_p_prime[0..row_len].to_vec(),
             &first_sum_check_random_points,
@@ -605,33 +573,23 @@ where
             &first_sum_check_random_points,
             1,
         ); // Suboptimal as to_vec() copies
-        transcript.write_field_elements([h_eval, p_eval, p_prime_eval].iter());
+        transcript.write_field_elements([p_eval, p_prime_eval].iter());
 
         //TODO 6.2(Bhargav): Compute H_val -- Check sum_check_rounds
 
         let mut h_val = pp.parity_check_matrix.val.clone();
-        // println!(
-        //     "The size of h_val length before appending is {:?}",
-        //     h_val.len()
-        // );
         h_val.resize(basefold_poly_size, F::ZERO);
-        // println!(
-        //     "The size of h_val length after appending is {:?}",
-        //     h_val.len()
-        // );
 
         // Computing and commiting h_erow and h_ecol
         let mut h_erow =
             compute_oracle_poly(&pp.parity_check_matrix.row, &first_sum_check_random_points);
         h_erow.resize(basefold_poly_size, h_erow[0]);
 
+        //ry
         let mut padded_u = [F::ZERO].to_vec();
         padded_u.extend(&u);
         let mut h_ecol = compute_oracle_poly(&pp.parity_check_matrix.col, &padded_u);
         h_ecol.resize(basefold_poly_size, h_ecol[0]);
-
-        // let h_erow_clone = h_erow.clone();
-        // let h_ecol_clone = h_ecol.clone();
 
         let mut polys: Vec<Vec<F>> = [h_erow.clone(), h_ecol.clone()].to_vec();
 
@@ -655,15 +613,6 @@ where
         For reference see the sum-check implemented here https://github.com/arithmic/Dual_PCS/blob/main/Spartan/Spartan_with_gkr/src/prover/batch_eval.rs.
         The sum-check expression is H_erow\cdot H_ecol \cdot H_eval, and hence would need len_4 interpolate.
         */
-        let mut test_h_eval = F::ZERO;
-        for i in 0..h_val.len() {
-            test_h_eval += h_val[i] * h_erow[i] * h_ecol[i];
-        }
-
-        if test_h_eval != h_eval {
-            println!("Second sum-check input wrong on prover side");
-        }
-        // println!("h_eval on prover side = {:?}", h_eval);
 
         let now = Instant::now();
         second_sum_check_prover::<F, H, S>(
@@ -674,32 +623,10 @@ where
             &mut second_sum_check_random_points,
             transcript,
         );
-
         println!("Time for second sum-check = {:?}", now.elapsed());
 
-        // TEST CODE
-        let h_val_eval = evaluate_poly(&h_val, &second_sum_check_random_points);
-        let h_erow_eval1 = evaluate_poly(&h_erow, &second_sum_check_random_points);
-        let now = Instant::now();
-        let h_ecol_eval1 = &evaluate_poly(&h_ecol, &second_sum_check_random_points);
-        println!("Time to evaluate a poly = {:?}", now.elapsed());
-        // println!(
-        //     "The three evaluations are: {:?}, {:?}, {:?}",
-        //     h_val_eval, h_erow_eval1, h_ecol_eval1
-        // );
-
-        /* GRAND PRODUCT CHECKS */
-        //TODO 8: Incorporate GKR from https://github.com/arithmic/Dual_PCS/tree/main/Grand_product/grand_product_with_gkr to our code.
-        //This might need some work, and we might have to sit down with Ashish for this.
-        // We could alternatively also implement Quarks.
-        //Call the grand-product check argument. In total we would have 4 grand-product checks.
-
-        //Quarks:
-        //TODO 8.1: Sample two random points gamma, tau.
+        //Sample two random points gamma, tau.
         let gamma_tau = transcript.squeeze_challenges(2);
-
-        //TODO 8.2: Build 4*2 vectors
-        /* polynomials required: hrow, h_erow, hrow_read_ts, hrow_final_ts, hcol, h_ecol, hcol_read_ts, hcol_final_ts */
 
         let mut h_col = vec![F::ZERO; pp.parity_check_matrix.col.len()];
 
@@ -779,6 +706,10 @@ where
             .to_vec(),
             transcript,
         );
+        let final_ts_row_eval = evaluate_poly(&final_ts_row, &random_points1);
+        let final_ts_col_eval = evaluate_poly(&final_ts_col, &random_points1);
+        transcript.write_field_elements(&[final_ts_row_eval, final_ts_col_eval]);
+
         let random_points2 = gkr_prover::<F, H, S>(
             &[
                 w_update_circuit_layers_row,
@@ -789,54 +720,21 @@ where
             .to_vec(),
             transcript,
         );
+        let h_row_eval = evaluate_poly(&h_row, &random_points2);
+        let h_col_eval = evaluate_poly(&h_col, &random_points2);
+        let read_ts_row_eval = evaluate_poly(&read_ts_row, &random_points2);
+        let read_ts_col_eval = evaluate_poly(&read_ts_col, &random_points2);
+        let h_erow_eval = evaluate_poly(&h_erow, &random_points2);
+        let h_ecol_eval = evaluate_poly(&h_ecol, &random_points2);
 
-        // //Send evaluation: a) h_row, h_erow, read_ts_row, final_ts_row
-        // // let h_row_eval = evaluate_poly(&h_row, &circuit_eval_point[1..].to_vec());
-        // let h_row_eval = evaluate_poly(&h_row, &random_points2);
-        // // let h_erow_eval2 = evaluate_poly(
-        // //     &h_erow_ecol[0..basefold_poly_size / 2].to_vec(),
-        // //     &circuit_eval_point[1..].to_vec(),
-        // // );
-        // let h_erow_eval = evaluate_poly(&h_erow, &random_points2);
-        // // let read_ts_row_eval = evaluate_poly(&read_ts_row, &circuit_eval_point[1..].to_vec());
-        // let read_ts_row_eval = evaluate_poly(&read_ts_row, &random_points2);
-        // // final_ts_row.resize(read_ts_row.len(), F::ZERO);
-        // // let final_ts_row_eval = evaluate_poly(&final_ts_row, &circuit_eval_point[1..].to_vec());
-        // let final_ts_row_eval = evaluate_poly(&final_ts_row, &random_points1);
-
-        // //Evaluations to compute evaluations of Circuit 10 and 20.
-        // //Send evaluation: a) h_col, h_ecol, read_ts_col, final_ts_col
-        // // let h_col_eval = evaluate_poly(&h_col, &circuit_eval_point[1..].to_vec());
-        // let h_col_eval = evaluate_poly(&h_col, &random_points2);
-        // // let h_ecol_eval2 = evaluate_poly(
-        // //     &h_erow_ecol[basefold_poly_size / 2..].to_vec(),
-        // //     &circuit_eval_point[1..].to_vec(),
-        // // );
-        // let h_ecol_eval = evaluate_poly(&h_ecol, &random_points2);
-        // // let read_ts_col_eval = evaluate_poly(&read_ts_col, &circuit_eval_point[1..].to_vec());
-        // let read_ts_col_eval = evaluate_poly(&read_ts_col, &random_points2);
-        // // final_ts_col.resize(read_ts_col.len(), F::ZERO);
-        // // let final_ts_col_eval = evaluate_poly(&final_ts_col, &circuit_eval_point[1..].to_vec());
-        // let final_ts_col_eval = evaluate_poly(&final_ts_col, &random_points1);
-
-        // transcript.write_field_element(&h_row_eval);
-        // transcript.write_field_element(&h_erow_eval);
-        // transcript.write_field_element(&read_ts_row_eval);
-        // transcript.write_field_element(&final_ts_row_eval);
-        // transcript.write_field_element(&h_col_eval);
-        // transcript.write_field_element(&h_ecol_eval);
-        // transcript.write_field_element(&read_ts_col_eval);
-        // transcript.write_field_element(&final_ts_col_eval);
-
-        // // let circuit11_eval2 = evaluate_poly(&circuit_11, &circuit_eval_point);
-        // // let circuit21_eval2 = evaluate_poly(&circuit_21, &circuit_eval_point);
-        // // let circuit31_eval2 = evaluate_poly(&circuit_31, &circuit_eval_point);
-        // // let circuit41_eval2 = evaluate_poly(&circuit_41, &circuit_eval_point);
-
-        // // transcript.write_field_element(&circuit11_eval2);
-        // // transcript.write_field_element(&circuit21_eval2);
-        // // transcript.write_field_element(&circuit31_eval2);
-        // // transcript.write_field_element(&circuit41_eval2);
+        transcript.write_field_elements(&[
+            h_row_eval,
+            h_col_eval,
+            read_ts_row_eval,
+            read_ts_col_eval,
+            h_erow_eval,
+            h_ecol_eval,
+        ]);
 
         // //TODO 9: Batch Evaluate
         // // List of batch evaluations:
@@ -1353,11 +1251,6 @@ where
         let h_erow_eval1 = transcript.read_field_element().unwrap();
         let h_ecol_eval1 = transcript.read_field_element().unwrap();
 
-        // println!(
-        //     "Second sum-check random point verifier side is {:?}",
-        //     second_sum_check_random_points[second_sum_check_random_points.len() - 1]
-        // );
-
         let final_value = h_val_eval * h_erow_eval1 * h_ecol_eval1;
         if sum_check_val != final_value {
             println!("Error in final check of second sum-check");
@@ -1366,23 +1259,28 @@ where
         println!("2-nd sum check verifier done.");
         /*END OF SECOND SUM_CHECK VERIFICATION */
 
-        /*QUARKS SUM_CHECK VERIFICATION */
         // println!("STARTING QUARKS SUM CHECK VERIFICATION");
         let gamma_tau = transcript.squeeze_challenges(2);
-       
-        //TODO:- Add final layer evaluatsions
-        gkr_verifier::<F>(
-            (2 * row_len).ilog2() as usize,
-            transcript,
-            vec![F::ZERO; 8],
+
+        let mut padded_u = [F::ZERO].to_vec();
+        padded_u.extend(&u);
+
+        let (expected_eval, combiners, random_points) =
+            gkr_verifier::<F>((2 * row_len).ilog2() as usize, transcript, 4);
+        input_layer_check1(
+            &gamma_tau,
+            &first_sum_check_random_points,
+            &padded_u,
+            &combiners,
+            &random_points,
+            expected_eval,
             4,
-        );
-        gkr_verifier::<F>(
-            vp.basefold_poly_size.ilog2() as usize,
             transcript,
-            vec![F::ZERO; 8],
-            4,
         );
+        let (expected_eval, combiners, _random_points) =
+            gkr_verifier::<F>(vp.basefold_poly_size.ilog2() as usize, transcript, 4);
+        input_layer_check2(&gamma_tau, expected_eval, &combiners, 4, transcript);
+
         // let circuit_11_commit = transcript.read_commitment().unwrap();
         // let circuit_21_commit = transcript.read_commitment().unwrap();
         // let circuit_31_commit = transcript.read_commitment().unwrap();
@@ -2029,21 +1927,14 @@ pub fn first_sum_check_prover<F, H, S>(
         let a_0 = random_combiners[0] * a1_0 + random_combiners[1] * a2_0;
         let a_1 = random_combiners[0] * a1_1 + random_combiners[1] * a2_1;
         let a_2 = random_combiners[0] * a1_2 + random_combiners[1] * a2_2;
-        // let a_0 = h_at_zero * p_p_prime_at_zero;
-        // let a_1 = h_at_one * p_p_prime_at_one;
-        // let a_2 = h_at_two * p_p_prime_at_two;
         let polynomial_current_round = [
             a_0 * f_2_inv - a_1 + a_2 * f_2_inv,
             -(f_3 * a_0 * f_2_inv) + f_2 * a_1 - a_2 * f_2_inv,
             a_0,
         ]
         .to_vec();
-        //println!("round = {}, elems = {:?}", i, polynomial_current_round);
         transcript.write_field_elements(&polynomial_current_round);
         let r = transcript.squeeze_challenge();
-        if i == 0 {
-            // println!("r in the first round prover side is {:?}", r);
-        }
         first_sum_check_random_points[i] = r;
 
         let mask_len = mask.len();
@@ -2059,10 +1950,10 @@ pub fn first_sum_check_prover<F, H, S>(
         p_p_prime.resize(mask_len / 2, F::ZERO);
         h.resize(mask_len / 2, F::ZERO);
     }
+    transcript.write_field_element(&h[0]);
 }
 
 //second_sum_check_prover(). Call the function here with H_val. H_erow, H_ecol, and transcript as input here.
-
 pub fn second_sum_check_prover<F, H, S>(
     sum_check_rounds: usize,
     mut h_erow: Vec<F>,
@@ -2078,7 +1969,6 @@ pub fn second_sum_check_prover<F, H, S>(
     H: Hash,
     S: BrakingbaseSpec,
 {
-    //transcript.write_field_elements(&sum_check_prover_round_one(&mask, &p_p_prime));
     let f_2 = F::ONE + F::ONE;
     let f_2_inv = f_2.invert().unwrap();
     let f_3 = f_2 + F::ONE;
@@ -2117,10 +2007,6 @@ pub fn second_sum_check_prover<F, H, S>(
             a_0,
         ]
         .to_vec();
-        // println!(
-        //     "Polynomial in round {} is {:?}",
-        //     i, polynomial_current_round
-        // );
         transcript.write_field_elements(&polynomial_current_round);
         let r = transcript.squeeze_challenge();
         second_sum_check_random_points[i] = r;
@@ -2135,306 +2021,10 @@ pub fn second_sum_check_prover<F, H, S>(
         h_ecol.resize(h_ecol.len() / 2, F::ZERO);
         h_val.resize(h_val.len() / 2, F::ZERO);
     }
-    // println!("h_val size = {}, h_val[0] = {:?}", h_val.len(), h_val[0]);
     transcript.write_field_element(&h_val[0]);
-    // println!(
-    //     "h_erow size = {}, h_erow[0] = {:?}",
-    //     h_erow.len(),
-    //     h_erow[0]
-    // );
     transcript.write_field_element(&h_erow[0]);
-    // println!(
-    //     "h_ecol size = {}, h_ecol[0] = {:?}",
-    //     h_ecol.len(),
-    //     h_ecol[0]
-    // );
     transcript.write_field_element(&h_ecol[0]);
 }
-
-// pub fn quarks_sum_check_prover<F, H, S>(
-//     sum_check_rounds: usize,
-//     mut eq_random: Vec<F>,
-//     mut circuit_11: Vec<F>,
-//     mut circuit_21: Vec<F>,
-//     mut circuit_31: Vec<F>,
-//     mut circuit_41: Vec<F>,
-//     mut circuit_1_even: Vec<F>,
-//     mut circuit_1_odd: Vec<F>,
-//     mut circuit_2_even: Vec<F>,
-//     mut circuit_2_odd: Vec<F>,
-//     mut circuit_3_even: Vec<F>,
-//     mut circuit_3_odd: Vec<F>,
-//     mut circuit_4_even: Vec<F>,
-//     mut circuit_4_odd: Vec<F>,
-//     quarks_random_combiner: Vec<F>,
-//     quarks_sum_check_random_points: &mut Vec<F>,
-//     transcript: &mut impl TranscriptWrite<
-//         <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::CommitmentChunk,
-//         F,
-//     >,
-// ) where
-//     F: PrimeField + Serialize + DeserializeOwned,
-//     H: Hash,
-//     S: BrakingbaseSpec,
-// {
-//     //transcript.write_field_elements(&sum_check_prover_round_one(&mask, &p_p_prime));
-//     for i in 0..sum_check_rounds {
-//         let f_2 = F::ONE + F::ONE;
-//         let f_2_inv = f_2.invert().unwrap();
-//         let f_3 = f_2 + F::ONE;
-
-//         let (
-//             circuit1_at_zero,
-//             circuit2_at_zero,
-//             circuit3_at_zero,
-//             circuit4_at_zero,
-//             circuit1_at_one,
-//             circuit2_at_one,
-//             circuit3_at_one,
-//             circuit4_at_one,
-//             circuit1_at_two,
-//             circuit2_at_two,
-//             circuit3_at_two,
-//             circuit4_at_two,
-//             circuit1_at_minus_one,
-//             circuit2_at_minus_one,
-//             circuit3_at_minus_one,
-//             circuit4_at_minus_one,
-//         ) = (0..circuit_11.len() / 2)
-//             .into_par_iter()
-//             .map(|iter| {
-//                 let iter2 = iter + circuit_11.len() / 2;
-//                 ////Circuit computations at zero
-//                 let circuit1_at_zero = eq_random[iter]
-//                     * (circuit_11[iter] - circuit_1_even[iter] * circuit_1_odd[iter]);
-//                 let circuit2_at_zero = eq_random[iter]
-//                     * (circuit_21[iter] - circuit_2_even[iter] * circuit_2_odd[iter]);
-//                 let circuit3_at_zero = eq_random[iter]
-//                     * (circuit_31[iter] - circuit_3_even[iter] * circuit_3_odd[iter]);
-//                 let circuit4_at_zero = eq_random[iter]
-//                     * (circuit_41[iter] - circuit_4_even[iter] * circuit_4_odd[iter]);
-
-//                 ////Circuit computations at one
-//                 let circuit1_at_one = eq_random[iter2]
-//                     * (circuit_11[iter2] - circuit_1_even[iter2] * circuit_1_odd[iter2]);
-//                 let circuit2_at_one = eq_random[iter2]
-//                     * (circuit_21[iter2] - circuit_2_even[iter2] * circuit_2_odd[iter2]);
-//                 let circuit3_at_one = eq_random[iter2]
-//                     * (circuit_31[iter2] - circuit_3_even[iter2] * circuit_3_odd[iter2]);
-//                 let circuit4_at_one = eq_random[iter2]
-//                     * (circuit_41[iter2] - circuit_4_even[iter2] * circuit_4_odd[iter2]);
-
-//                 ////Circuit computations at two
-
-//                 let val4 = f_2 * eq_random[iter2] - eq_random[iter];
-
-//                 let val1 = f_2 * circuit_11[iter2] - circuit_11[iter];
-//                 let val2 = f_2 * circuit_1_even[iter2] - circuit_1_even[iter];
-//                 let val3 = f_2 * circuit_1_odd[iter2] - circuit_1_odd[iter];
-
-//                 let circuit1_at_two = val4 * (val1 - val2 * val3);
-
-//                 let val1 = f_2 * circuit_21[iter2] - circuit_21[iter];
-//                 let val2 = f_2 * circuit_2_even[iter2] - circuit_2_even[iter];
-//                 let val3 = f_2 * circuit_2_odd[iter2] - circuit_2_odd[iter];
-//                 let circuit2_at_two = val4 * (val1 - val2 * val3);
-
-//                 let val1 = f_2 * circuit_31[iter2] - circuit_31[iter];
-//                 let val2 = f_2 * circuit_3_even[iter2] - circuit_3_even[iter];
-//                 let val3 = f_2 * circuit_3_odd[iter2] - circuit_3_odd[iter];
-//                 let circuit3_at_two = val4 * (val1 - val2 * val3);
-
-//                 let val1 = f_2 * circuit_41[iter2] - circuit_41[iter];
-//                 let val2 = f_2 * circuit_4_even[iter2] - circuit_4_even[iter];
-//                 let val3 = f_2 * circuit_4_odd[iter2] - circuit_4_odd[iter];
-//                 let circuit4_at_two = val4 * (val1 - val2 * val3);
-
-//                 ////Circuit computations at minus_one
-
-//                 let val4 = -eq_random[iter2] + f_2 * eq_random[iter];
-
-//                 let val1 = -circuit_11[iter2] + f_2 * circuit_11[iter];
-//                 let val2 = -circuit_1_even[iter2] + f_2 * circuit_1_even[iter];
-//                 let val3 = -circuit_1_odd[iter2] + f_2 * circuit_1_odd[iter];
-//                 let circuit1_at_minus_one = val4 * (val1 - val2 * val3);
-
-//                 let val1 = -circuit_21[iter2] + f_2 * circuit_21[iter];
-//                 let val2 = -circuit_2_even[iter2] + f_2 * circuit_2_even[iter];
-//                 let val3 = -circuit_2_odd[iter2] + f_2 * circuit_2_odd[iter];
-//                 let circuit2_at_minus_one = val4 * (val1 - val2 * val3);
-
-//                 let val1 = -circuit_31[iter2] + f_2 * circuit_31[iter];
-//                 let val2 = -circuit_3_even[iter2] + f_2 * circuit_3_even[iter];
-//                 let val3 = -circuit_3_odd[iter2] + f_2 * circuit_3_odd[iter];
-//                 let circuit3_at_minus_one = val4 * (val1 - val2 * val3);
-
-//                 let val1 = -circuit_41[iter2] + f_2 * circuit_41[iter];
-//                 let val2 = -circuit_4_even[iter2] + f_2 * circuit_4_even[iter];
-//                 let val3 = -circuit_4_odd[iter2] + f_2 * circuit_4_odd[iter];
-//                 let circuit4_at_minus_one = val4 * (val1 - val2 * val3);
-//                 (
-//                     circuit1_at_zero,
-//                     circuit2_at_zero,
-//                     circuit3_at_zero,
-//                     circuit4_at_zero,
-//                     circuit1_at_one,
-//                     circuit2_at_one,
-//                     circuit3_at_one,
-//                     circuit4_at_one,
-//                     circuit1_at_two,
-//                     circuit2_at_two,
-//                     circuit3_at_two,
-//                     circuit4_at_two,
-//                     circuit1_at_minus_one,
-//                     circuit2_at_minus_one,
-//                     circuit3_at_minus_one,
-//                     circuit4_at_minus_one,
-//                 )
-//             })
-//             .reduce_with(
-//                 |(
-//                     acc0,
-//                     acc1,
-//                     acc2,
-//                     acc3,
-//                     acc4,
-//                     acc5,
-//                     acc6,
-//                     acc7,
-//                     acc8,
-//                     acc9,
-//                     acc10,
-//                     acc11,
-//                     acc12,
-//                     acc13,
-//                     acc14,
-//                     acc15,
-//                 ),
-//                  (
-//                     circuit1_at_zero,
-//                     circuit2_at_zero,
-//                     circuit3_at_zero,
-//                     circuit4_at_zero,
-//                     circuit1_at_one,
-//                     circuit2_at_one,
-//                     circuit3_at_one,
-//                     circuit4_at_one,
-//                     circuit1_at_two,
-//                     circuit2_at_two,
-//                     circuit3_at_two,
-//                     circuit4_at_two,
-//                     circuit1_at_minus_one,
-//                     circuit2_at_minus_one,
-//                     circuit3_at_minus_one,
-//                     circuit4_at_minus_one,
-//                 )| {
-//                     (
-//                         acc0 + circuit1_at_zero,
-//                         acc1 + circuit2_at_zero,
-//                         acc2 + circuit3_at_zero,
-//                         acc3 + circuit4_at_zero,
-//                         acc4 + circuit1_at_one,
-//                         acc5 + circuit2_at_one,
-//                         acc6 + circuit3_at_one,
-//                         acc7 + circuit4_at_one,
-//                         acc8 + circuit1_at_two,
-//                         acc9 + circuit2_at_two,
-//                         acc10 + circuit3_at_two,
-//                         acc11 + circuit4_at_two,
-//                         acc12 + circuit1_at_minus_one,
-//                         acc13 + circuit2_at_minus_one,
-//                         acc14 + circuit3_at_minus_one,
-//                         acc15 + circuit4_at_minus_one,
-//                     )
-//                 },
-//             )
-//             .unwrap();
-
-//         let a_0 = quarks_random_combiner[0] * circuit1_at_zero
-//             + quarks_random_combiner[1] * circuit2_at_zero
-//             + quarks_random_combiner[2] * circuit3_at_zero
-//             + quarks_random_combiner[3] * circuit4_at_zero;
-
-//         let a_1 = quarks_random_combiner[0] * circuit1_at_one
-//             + quarks_random_combiner[1] * circuit2_at_one
-//             + quarks_random_combiner[2] * circuit3_at_one
-//             + quarks_random_combiner[3] * circuit4_at_one;
-
-//         let a_2 = quarks_random_combiner[0] * circuit1_at_two
-//             + quarks_random_combiner[1] * circuit2_at_two
-//             + quarks_random_combiner[2] * circuit3_at_two
-//             + quarks_random_combiner[3] * circuit4_at_two;
-
-//         let a_minus_one = quarks_random_combiner[0] * circuit1_at_minus_one
-//             + quarks_random_combiner[1] * circuit2_at_minus_one
-//             + quarks_random_combiner[2] * circuit3_at_minus_one
-//             + quarks_random_combiner[3] * circuit4_at_minus_one;
-
-//         let f_2 = F::ONE + F::ONE;
-//         let f_2_inv = f_2.invert().unwrap();
-//         let f_3 = f_2 + F::ONE;
-//         let f_3_inv = f_3.invert().unwrap();
-//         let f_6 = f_3 + f_3;
-//         let f_6_inv = f_6.invert().unwrap();
-//         let polynomial_current_round = [
-//             a_0 * f_2_inv - a_1 * f_2_inv + a_2 * f_6_inv - a_minus_one * f_6_inv,
-//             -a_0 + a_1 * f_2_inv + a_minus_one * f_2_inv,
-//             -a_0 * f_2_inv + a_1 - a_2 * f_6_inv - a_minus_one * f_3_inv,
-//             a_0,
-//         ]
-//         .to_vec();
-//         transcript.write_field_elements(&polynomial_current_round);
-//         // println!("round = {}, points")
-//         let r = transcript.squeeze_challenge();
-
-//         quarks_sum_check_random_points[i] = r;
-
-//         for j in 0..circuit_11.len() / 2 {
-//             circuit_11[j] = (F::ONE - r) * circuit_11[j] + r * circuit_11[j + circuit_11.len() / 2];
-//             circuit_1_even[j] =
-//                 (F::ONE - r) * circuit_1_even[j] + r * circuit_1_even[j + circuit_1_even.len() / 2];
-//             circuit_1_odd[j] =
-//                 (F::ONE - r) * circuit_1_odd[j] + r * circuit_1_odd[j + circuit_1_odd.len() / 2];
-
-//             circuit_21[j] = (F::ONE - r) * circuit_21[j] + r * circuit_21[j + circuit_21.len() / 2];
-//             circuit_2_even[j] =
-//                 (F::ONE - r) * circuit_2_even[j] + r * circuit_2_even[j + circuit_2_even.len() / 2];
-//             circuit_2_odd[j] =
-//                 (F::ONE - r) * circuit_2_odd[j] + r * circuit_2_odd[j + circuit_2_odd.len() / 2];
-
-//             circuit_31[j] = (F::ONE - r) * circuit_31[j] + r * circuit_31[j + circuit_31.len() / 2];
-//             circuit_3_even[j] =
-//                 (F::ONE - r) * circuit_3_even[j] + r * circuit_3_even[j + circuit_3_even.len() / 2];
-//             circuit_3_odd[j] =
-//                 (F::ONE - r) * circuit_3_odd[j] + r * circuit_3_odd[j + circuit_3_odd.len() / 2];
-
-//             circuit_41[j] = (F::ONE - r) * circuit_41[j] + r * circuit_41[j + circuit_41.len() / 2];
-//             circuit_4_even[j] =
-//                 (F::ONE - r) * circuit_4_even[j] + r * circuit_4_even[j + circuit_4_even.len() / 2];
-//             circuit_4_odd[j] =
-//                 (F::ONE - r) * circuit_4_odd[j] + r * circuit_4_odd[j + circuit_4_odd.len() / 2];
-
-//             eq_random[j] = (F::ONE - r) * eq_random[j] + r * eq_random[j + eq_random.len() / 2];
-//         }
-//         circuit_11.resize(circuit_11.len() / 2, F::ZERO);
-//         circuit_1_even.resize(circuit_1_even.len() / 2, F::ZERO);
-//         circuit_1_odd.resize(circuit_1_odd.len() / 2, F::ZERO);
-
-//         circuit_21.resize(circuit_21.len() / 2, F::ZERO);
-//         circuit_2_even.resize(circuit_2_even.len() / 2, F::ZERO);
-//         circuit_2_odd.resize(circuit_2_odd.len() / 2, F::ZERO);
-
-//         circuit_31.resize(circuit_31.len() / 2, F::ZERO);
-//         circuit_3_even.resize(circuit_3_even.len() / 2, F::ZERO);
-//         circuit_3_odd.resize(circuit_3_odd.len() / 2, F::ZERO);
-
-//         circuit_41.resize(circuit_41.len() / 2, F::ZERO);
-//         circuit_4_even.resize(circuit_4_even.len() / 2, F::ZERO);
-//         circuit_4_odd.resize(circuit_4_odd.len() / 2, F::ZERO);
-
-//         eq_random.resize(eq_random.len() / 2, F::ZERO);
-//     }
-// }
 
 pub fn batch_evaluate_sum_check<F, H, S>(
     sum_check_rounds: usize,
@@ -2833,9 +2423,9 @@ where
     let codeword_tree = batch_merkelize::<F, H>(&codewords);
 
     BasefoldBatchCommitment {
-        codewords: codewords,
-        codeword_tree: codeword_tree,
-        bh_evals: bh_evals,
+        codewords,
+        codeword_tree,
+        bh_evals,
     }
 }
 
@@ -2888,12 +2478,8 @@ pub fn basefold_batch_open<F, H, S>(
     S: BrakingbaseSpec,
 {
     let a = (F::ONE + F::ONE).invert().unwrap();
-    // println!("Element written = {:?}", a);
     let num_vars = pp.num_vars;
     let num_rounds = num_vars;
-    // let table_w_weights = pp.table_w_weights.clone();
-
-    // println!("evals prover side = {:?} ", evals);
 
     assert_eq!(polys.len(), random_combiners.len());
 
@@ -2911,17 +2497,10 @@ pub fn basefold_batch_open<F, H, S>(
             }
         });
 
-    // let mut combined_poly = vec![F::ZERO; 1 << num_vars];
-    // for i in 0..polys.len() {
-    //     for j in 0..combined_poly.len() {
-    //         combined_poly[j] += random_combiners[i] * polys[i][j];
-    //     }
-    // }
     println!(
         "Time to compute combined polynomial in basefold batch open = {:?}",
         now.elapsed(),
     );
-    // let mut combined_1 = combined_poly.clone();
 
     let now = Instant::now();
     let mut combined_poly_clone = combined_poly.clone();
@@ -2942,15 +2521,6 @@ pub fn basefold_batch_open<F, H, S>(
             }
         });
 
-    // let mut combined_codeword_0 = vec![F::ZERO; comms[0].codeword.poly.len()];
-    // for i in 0..polys.len() {
-    //     for j in 0..combined_codeword_0.len() {
-    //         combined_codeword_0[j] += random_combiners[i] * comms[i].codeword.poly[j];
-    //     }
-    // }
-    // For testing
-    // let mut combined_codeword_1 = combined_codeword_0.clone();
-
     let mut combined_codeword = Type1Polynomial {
         poly: combined_codeword_0,
     };
@@ -2969,19 +2539,7 @@ pub fn basefold_batch_open<F, H, S>(
             *eq_element = eq(i, &point);
         });
 
-    //---> In case temp is required
-    // let temp = eq_vec
-    //     .par_iter_mut()
-    //     .enumerate()
-    //     .map(|(i, eq_element)| {
-    //         *eq_element = eq(i, &point);
-    //         eq_element.clone()
-    //     })
-    //     .reduce_with(|acc, element| acc + element).unwrap();
-
-    // reverse_index_bits_in_place(&mut eq_vec);
     assert_eq!(eq_vec.len(), polys[0].len());
-    // println!("eq = {:?}", temp);
     let mut codewords = Vec::<Type1Polynomial<F>>::with_capacity(num_rounds);
     let mut merkle_trees = Vec::<Vec<Vec<Output<H>>>>::with_capacity(num_rounds);
 

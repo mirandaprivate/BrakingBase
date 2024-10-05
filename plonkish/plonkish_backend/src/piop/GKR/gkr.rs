@@ -1,3 +1,4 @@
+use crate::piop::GKR::helper::{eval, evaluate_eq};
 use crate::util::hash::Hash;
 use crate::util::transcript::FieldTranscriptRead;
 use crate::{
@@ -8,12 +9,11 @@ use crate::{
     util::transcript::TranscriptWrite,
 };
 use ff::PrimeField;
-use rayon::{
-    iter::{IndexedParallelIterator, IntoParallelRefMutIterator, ParallelIterator},
-    slice::ParallelSliceMut,
-};
+use rayon::iter::{IndexedParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
+
+use super::helper::{compute_fourier_bases, fold_by_msb, len_4_interpolate, par_fold_by_msb};
 
 #[derive(Clone)]
 pub struct GkrTranscript<F: PrimeField> {
@@ -200,19 +200,15 @@ pub fn gkr_prover<F: PrimeField + Serialize + DeserializeOwned, H: Hash, S: Brak
         sum_check_random_points[0] = r;
         initial_random_point = sum_check_random_points
     }
-    // initial_random_point.reverse();
+    initial_random_point.reverse();
     initial_random_point
 }
 
 pub fn gkr_verifier<F: PrimeField + Serialize + DeserializeOwned>(
     depth: usize,
     transcript: &mut impl FieldTranscriptRead<F>,
-    circuit_evals: Vec<F>,
     n_circuits: usize,
-) {
-    // let polynomials = &gkr_transcript.polynomials;
-    // let final_evaluations = &gkr_transcript.final_evaluations;
-    // let claimed_values = &gkr_transcript.claimed_values;
+) -> (F, Vec<F>, Vec<F>) {
 
     let final_evaluations = transcript.read_field_elements(n_circuits * 2).unwrap();
     let mut initial_random_point = vec![transcript.squeeze_challenge()];
@@ -258,8 +254,8 @@ pub fn gkr_verifier<F: PrimeField + Serialize + DeserializeOwned>(
         sum_check_random_points[0] = r;
 
         let eq = evaluate_eq::<F>(
-            initial_random_point,
-            sum_check_random_points[1..].to_vec().clone(),
+            &initial_random_point,
+            &sum_check_random_points[1..].to_vec(),
         );
         assert_eq!(current_sum, eq * temp, "assertion failed at layer {d}");
 
@@ -271,95 +267,13 @@ pub fn gkr_verifier<F: PrimeField + Serialize + DeserializeOwned>(
         //For any multilinear polynomial W in variables, x_1, ..., x_d+1.
         //W(x_1, ..., x_d+1) = (1-x_1).W(x_1, ... , x_d,0) + x_1.W(x_1,...,x_d,1)
         let mut next_layer_claimed_values = F::ZERO;
-        for c in 0..claimed_values.len()/2 {
+        for c in 0..claimed_values.len() / 2 {
             next_layer_claimed_values += random_coeff[c]
                 * ((F::ONE - r) * claimed_values[2 * c] + r * claimed_values[2 * c + 1])
         }
         binding_per_layer = next_layer_claimed_values;
     }
     // initial_random_point.reverse();
-
-    let mut final_claimed_values = F::ZERO;
-    for c in 0..n_circuits {
-        final_claimed_values += random_coeff[c] * circuit_evals[c]
-    }
-    // assert_eq!(
-    //     binding_per_layer, final_claimed_values,
-    //     "Final depth check failed"
-    // )
-}
-pub fn evaluate_eq<F: PrimeField>(r_x: Vec<F>, r_y: Vec<F>) -> F {
-    let mut temp = F::ONE;
-    assert_eq!(r_x.len(), r_y.len());
-    for k in 0..r_y.len() {
-        temp = temp * ((r_x[k] * r_y[k]) + ((F::ONE - r_x[k]) * (F::ONE - r_y[k])));
-    }
-    temp
-}
-
-// CODE  for evaluating polynomial at points
-//.............
-pub fn eval<F: PrimeField>(p: &[F], x: F) -> F {
-    // Horner evaluation
-    p.iter()
-        .rev()
-        .fold(F::ZERO, |acc, &coeff| (acc * x) + coeff)
-}
-
-pub fn fold_by_msb<F: PrimeField>(poly: &Vec<F>, point: F) -> Vec<F> {
-    let halfsize = poly.len() >> 1;
-    let mut res = vec![F::ZERO; halfsize];
-    for k in 0..halfsize {
-        res[k] = poly[k] + (poly[k + halfsize] - poly[k]) * point;
-    }
-    res
-}
-
-pub fn par_fold_by_msb<F: PrimeField>(poly: &Vec<F>, point: F) -> Vec<F> {
-    let halfsize = poly.len() >> 1;
-    let mut res = vec![F::ZERO; halfsize];
-    res.par_iter_mut().enumerate().for_each(|(j, res_j)| {
-        *res_j = poly[j] + (poly[j + halfsize] - poly[j]) * point;
-    });
-    res
-}
-
-pub fn compute_fourier_bases<F: PrimeField>(r: Vec<F>) -> Vec<F> {
-    //Initialize fc_eq with (1- r[0]) and r[0]
-    let mut fc_eq = [F::ONE - r[r.len() - 1], r[r.len() - 1]].to_vec();
-    //Iterate over the length of the r vector
-    for k in (0..r.len() - 1).rev() {
-        let temp = fc_eq;
-        //initialize fc_eq of double size with zero
-        fc_eq = vec![F::ZERO; temp.len() * 2];
-
-        if k < 8 {
-            for iter in 0..temp.len() {
-                fc_eq[2 * iter + 1] = temp[iter] * r[k];
-                fc_eq[2 * iter] = temp[iter] - fc_eq[2 * iter + 1];
-            }
-        } else {
-            fc_eq
-                .par_chunks_mut(2)
-                .zip(temp)
-                .for_each(|(fc_eq_pair, temp)| {
-                    fc_eq_pair[1] = temp * (r[k as usize]);
-                    fc_eq_pair[0] = temp - fc_eq_pair[1];
-                })
-        }
-    }
-    fc_eq
-}
-
-pub fn len_4_interpolate<F: PrimeField>(evaluations: &mut [F; 4]) {
-    let t0 =
-        F::from(2).invert().unwrap() * (evaluations[1] + evaluations[2] - evaluations[0].double());
-    let t1 = evaluations[1] - evaluations[2] + evaluations[0] + t0.double().double();
-    let t2 = F::from(6).invert().unwrap() * (evaluations[3] - t1);
-    *evaluations = [
-        evaluations[0],
-        evaluations[1] - (evaluations[0] + t0 + t2),
-        t0,
-        t2,
-    ]
+    (binding_per_layer, random_coeff, initial_random_point)
+ 
 }

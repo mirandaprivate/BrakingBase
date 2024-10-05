@@ -29,7 +29,8 @@ pub fn grand_product_circuits<F: PrimeField>(
                 let (w_init, s): (Vec<F>, Vec<F>) = (0..len1)
                     .map(|i| {
                         let term =
-                            F::from_u128(i as u128) + gamma_tau[0] * eq(i, &eq_data) - gamma_tau[1];
+                            F::from_u128(i as u128)
+                             + gamma_tau[0] * eq(i, &eq_data) - gamma_tau[1];
                         (term, term + gamma_square * final_ts[i])
                     })
                     .collect();
