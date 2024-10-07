@@ -1,47 +1,12 @@
+use crate::{
+    pcs::multilinear::brakingbase_helper::evaluate_eq, util::transcript::FieldTranscriptRead,
+};
 use ff::PrimeField;
 use rayon::{
-    iter::{IndexedParallelIterator, IntoParallelRefMutIterator, ParallelIterator},
+    iter::{IndexedParallelIterator, ParallelIterator},
     slice::ParallelSliceMut,
 };
 use serde::{de::DeserializeOwned, Serialize};
-
-use crate::util::transcript::FieldTranscriptRead;
-
-pub fn evaluate_eq<F: PrimeField>(r_x: &Vec<F>, r_y: &Vec<F>) -> F {
-    let mut temp = F::ONE;
-    assert_eq!(r_x.len(), r_y.len());
-    for k in 0..r_y.len() {
-        temp = temp * ((r_x[k] * r_y[k]) + ((F::ONE - r_x[k]) * (F::ONE - r_y[k])));
-    }
-    temp
-}
-
-// CODE  for evaluating polynomial at points
-//.............
-pub fn eval<F: PrimeField>(p: &[F], x: F) -> F {
-    // Horner evaluation
-    p.iter()
-        .rev()
-        .fold(F::ZERO, |acc, &coeff| (acc * x) + coeff)
-}
-
-pub fn fold_by_msb<F: PrimeField>(poly: &Vec<F>, point: F) -> Vec<F> {
-    let halfsize = poly.len() >> 1;
-    let mut res = vec![F::ZERO; halfsize];
-    for k in 0..halfsize {
-        res[k] = poly[k] + (poly[k + halfsize] - poly[k]) * point;
-    }
-    res
-}
-
-pub fn par_fold_by_msb<F: PrimeField>(poly: &Vec<F>, point: F) -> Vec<F> {
-    let halfsize = poly.len() >> 1;
-    let mut res = vec![F::ZERO; halfsize];
-    res.par_iter_mut().enumerate().for_each(|(j, res_j)| {
-        *res_j = poly[j] + (poly[j + halfsize] - poly[j]) * point;
-    });
-    res
-}
 
 pub fn compute_fourier_bases<F: PrimeField>(r: Vec<F>) -> Vec<F> {
     //Initialize fc_eq with (1- r[0]) and r[0]
@@ -90,53 +55,45 @@ pub fn input_layer_check1<F: PrimeField + Serialize + DeserializeOwned>(
     random_points: &Vec<F>,
     expected_eval: F,
     n_circuits: usize,
-    transcript: &mut impl FieldTranscriptRead<F>,
+    final_ts_eval_row: F,
+    final_ts_eval_col: F,
 ) {
-    
-        let indices_eval = evaluate_indicies::<F>(random_points);
-        let mut random_points = random_points.clone();
-        random_points.reverse();
-        let r_x_eval = evaluate_eq::<F>(r_x, &random_points);
-        let r_y_eval = evaluate_eq::<F>(r_y, &random_points);
-        let gamma_square = gamma_tau[0].square();
-        let final_ts_eval_row = transcript.read_field_element().unwrap();
-        let final_ts_eval_col = transcript.read_field_element().unwrap();
-        let mut circuit_evals = vec![F::ZERO; n_circuits];
-        circuit_evals[0] = indices_eval 
-        + gamma_tau[0] * r_x_eval - gamma_tau[1];
-        circuit_evals[1] = circuit_evals[0] + gamma_square * final_ts_eval_row;
-        circuit_evals[2] = indices_eval + gamma_tau[0] * r_y_eval - gamma_tau[1];
-        circuit_evals[3] = circuit_evals[2] + gamma_square * final_ts_eval_col;
-        let mut final_claimed_values = F::ZERO;
-        for c in 0..n_circuits {
-            final_claimed_values += combiners[c] * circuit_evals[c]
-        }
-        assert_eq!(
-            expected_eval, final_claimed_values,
-            "input layer check failed of first circuit"
-        )
-    
+    let mut random_points = random_points.clone();
+    let r_x_eval = evaluate_eq::<F>(r_x, &random_points);
+    let r_y_eval = evaluate_eq::<F>(r_y, &random_points);
+    random_points.reverse();
+    let indices_eval = evaluate_indicies::<F>(&random_points);
+    let gamma_square = gamma_tau[0].square();
+    let mut circuit_evals = vec![F::ZERO; n_circuits];
+    circuit_evals[0] = indices_eval + gamma_tau[0] * r_x_eval - gamma_tau[1];
+    circuit_evals[1] = circuit_evals[0] + gamma_square * final_ts_eval_row;
+    circuit_evals[2] = indices_eval + gamma_tau[0] * r_y_eval - gamma_tau[1];
+    circuit_evals[3] = circuit_evals[2] + gamma_square * final_ts_eval_col;
+    let mut final_claimed_values = F::ZERO;
+    for c in 0..n_circuits {
+        final_claimed_values += combiners[c] * circuit_evals[c]
+    }
+    assert_eq!(
+        expected_eval, final_claimed_values,
+        "input layer check failed of first circuit"
+    )
 }
 pub fn input_layer_check2<F: PrimeField + Serialize + DeserializeOwned>(
     gamma_tau: &Vec<F>,
     expected_eval: F,
     combiners: &Vec<F>,
     n_circuits: usize,
-    transcript: &mut impl FieldTranscriptRead<F>,
+    evaluations: &Vec<F>,
 ) {
-    let h_row_eval = transcript.read_field_element().unwrap();
-    let h_col_eval = transcript.read_field_element().unwrap();
-    let read_ts_row_eval = transcript.read_field_element().unwrap();
-    let read_ts_col_eval = transcript.read_field_element().unwrap();
-    let h_erow_eval = transcript.read_field_element().unwrap();
-    let h_ecol_eval = transcript.read_field_element().unwrap();
     let gamma_square = gamma_tau[0].square();
     let mut circuit_evals = vec![F::ZERO; n_circuits];
     circuit_evals[1] =
-        h_row_eval + gamma_tau[0] * h_erow_eval + gamma_square * read_ts_row_eval - gamma_tau[1];
+        evaluations[2] + gamma_tau[0] * evaluations[0] + gamma_square * evaluations[4]
+            - gamma_tau[1];
     circuit_evals[0] = circuit_evals[1] + gamma_square;
     circuit_evals[3] =
-        h_col_eval + gamma_tau[0] * h_ecol_eval + gamma_square * read_ts_col_eval - gamma_tau[1];
+        evaluations[3] + gamma_tau[0] * evaluations[1] + gamma_square * evaluations[5]
+            - gamma_tau[1];
     circuit_evals[2] = circuit_evals[3] + gamma_square;
 
     let mut final_claimed_values = F::ZERO;

@@ -1,4 +1,7 @@
-use crate::piop::GKR::helper::{eval, evaluate_eq};
+use super::helper::{compute_fourier_bases, len_4_interpolate};
+use crate::pcs::multilinear::brakingbase_helper::{
+    eval, evaluate_eq, fold_by_msb, par_fold_by_msb,
+};
 use crate::util::hash::Hash;
 use crate::util::transcript::FieldTranscriptRead;
 use crate::{
@@ -12,8 +15,6 @@ use ff::PrimeField;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-
-use super::helper::{compute_fourier_bases, fold_by_msb, len_4_interpolate, par_fold_by_msb};
 
 #[derive(Clone)]
 pub struct GkrTranscript<F: PrimeField> {
@@ -209,7 +210,6 @@ pub fn gkr_verifier<F: PrimeField + Serialize + DeserializeOwned>(
     transcript: &mut impl FieldTranscriptRead<F>,
     n_circuits: usize,
 ) -> (F, Vec<F>, Vec<F>) {
-
     let final_evaluations = transcript.read_field_elements(n_circuits * 2).unwrap();
     let mut initial_random_point = vec![transcript.squeeze_challenge()];
 
@@ -226,7 +226,6 @@ pub fn gkr_verifier<F: PrimeField + Serialize + DeserializeOwned>(
     }
 
     for d in 0..depth - 1 {
-        //TODO:- fix no of rounds ;
         let rounds = d + 1;
         let mut current_sum = binding_per_layer;
         let mut sum_check_random_points = vec![F::ONE; rounds + 1];
@@ -273,7 +272,6 @@ pub fn gkr_verifier<F: PrimeField + Serialize + DeserializeOwned>(
         }
         binding_per_layer = next_layer_claimed_values;
     }
-    // initial_random_point.reverse();
+    initial_random_point.reverse();
     (binding_per_layer, random_coeff, initial_random_point)
- 
 }
