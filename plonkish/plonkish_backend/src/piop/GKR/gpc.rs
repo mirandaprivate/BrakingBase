@@ -1,5 +1,5 @@
-use crate::pcs::multilinear::brakingbase::eq;
 use ff::PrimeField;
+use crate::pcs::multilinear::brakingbase_helper::eq;
 
 pub fn grand_product_circuits<F: PrimeField>(
     len1: usize,
