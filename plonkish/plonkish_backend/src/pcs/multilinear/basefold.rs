@@ -237,6 +237,9 @@ where
         let log_rate = V::get_rate();
         let mut test_rng = ChaCha8Rng::from_entropy();
         let (table_w_weights, table) = get_table_aes(poly_size, log_rate, &mut test_rng);
+        // for i in 0..10 {
+        //     println!("{:?}", table_w_weights[i]);
+        // }
         let mut rs_basecode = false;
         if V::get_rs_basecode() == true && V::get_basecode_rounds() > 0 {
             rs_basecode = true;
@@ -1170,7 +1173,7 @@ pub(super) fn evaluate_over_foldable_domain_2<F: PrimeField>(
     Type1Polynomial { poly: coeffs.poly }
 }
 
-fn interpolate_over_boolean_hypercube_with_copy<F: PrimeField>(
+pub(super) fn interpolate_over_boolean_hypercube_with_copy<F: PrimeField>(
     evals: &Type2Polynomial<F>,
 ) -> (Type2Polynomial<F>, Type1Polynomial<F>) {
     //iterate over array, replacing even indices with (evals[i] - evals[(i+1)])
