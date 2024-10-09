@@ -8,8 +8,8 @@ use crate::{
 mod basefold;
 mod brakedown;
 pub mod brakingbase;
-mod gemini;
 pub mod brakingbase_helper;
+mod gemini;
 mod hyrax;
 mod ipa;
 mod kzg;
@@ -285,7 +285,9 @@ mod additive {
 #[cfg(test)]
 mod test {
     use crate::{
-        pcs::{multilinear::brakingbase_helper::evaluate_poly, Evaluation, PolynomialCommitmentScheme},
+        pcs::{
+            multilinear::brakingbase_helper::evaluate_poly, Evaluation, PolynomialCommitmentScheme,
+        },
         poly::{multilinear::MultilinearPolynomial, Polynomial},
         util::{
             arithmetic::PrimeField,

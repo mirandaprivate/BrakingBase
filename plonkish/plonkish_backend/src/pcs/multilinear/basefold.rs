@@ -1170,7 +1170,7 @@ pub(super) fn evaluate_over_foldable_domain_2<F: PrimeField>(
     Type1Polynomial { poly: coeffs.poly }
 }
 
-fn interpolate_over_boolean_hypercube_with_copy<F: PrimeField>(
+pub(super) fn interpolate_over_boolean_hypercube_with_copy<F: PrimeField>(
     evals: &Type2Polynomial<F>,
 ) -> (Type2Polynomial<F>, Type1Polynomial<F>) {
     //iterate over array, replacing even indices with (evals[i] - evals[(i+1)])
