@@ -237,6 +237,9 @@ where
         let log_rate = V::get_rate();
         let mut test_rng = ChaCha8Rng::from_entropy();
         let (table_w_weights, table) = get_table_aes(poly_size, log_rate, &mut test_rng);
+        // for i in 0..10 {
+        //     println!("{:?}", table_w_weights[i]);
+        // }
         let mut rs_basecode = false;
         if V::get_rs_basecode() == true && V::get_basecode_rounds() > 0 {
             rs_basecode = true;

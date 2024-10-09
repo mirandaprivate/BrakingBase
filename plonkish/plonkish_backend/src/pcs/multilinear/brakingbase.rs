@@ -585,10 +585,6 @@ where
         //     Basefold::<F, H, S>::commit(&pp.basefold, &MultilinearPolynomial::new(h_erow_temp))
         //         .unwrap();
         let h_erow_ecol_commit = basefold_batch_commit::<F, H, S>(&pp.basefold, &mut polys);
-        println!(
-            "The first hash is {:?}",
-            h_erow_ecol_commit.codeword_tree[0][0]
-        );
         // for i in 0..h_erow_commit.codeword.poly.len() {
         //     assert_eq!(
         //         h_erow_commit.codeword.poly[i],
@@ -1278,11 +1274,11 @@ where
             &vp.trusted_commit,
             &evals,
             transcript,
-        );
+        )
 
-        println!("END OF VERIFICATION."); // remove this
+        //println!("END OF VERIFICATION."); // remove this
 
-        Ok(())
+        //Ok(())
     }
 
     fn batch_verify<'a>(
@@ -1663,6 +1659,7 @@ fn compute_oracle_poly<F: PrimeField>(coeffs: &Vec<usize>, point: &Vec<F>) -> Ve
     coeffs.par_iter().map(|coeff| eq(*coeff, point)).collect()
 }
 
+// Can be made better. Too hacky.
 pub fn basefold_batch_commit<F, H, S>(
     pp: &BasefoldProverParams<F>,
     polys: &mut Vec<Vec<F>>,
@@ -1750,16 +1747,29 @@ where
     }
 }
 
+// Can be optimised. merkle_tree[0] not required.
 fn batch_merkelize<F: PrimeField, H: Hash>(vecs: &Vec<Type1Polynomial<F>>) -> Vec<Vec<Output<H>>> {
     let temp: Vec<usize> = (0..vecs[0].poly.len()).collect();
     let mut hashes: Vec<Output<H>> = (0..vecs[0].poly.len())
         .into_par_iter()
         .map(|j| {
             let mut hasher = H::new();
+            // for i in 0..vecs.len() {
+            //     hasher.update_field_element(&(vecs[i]).poly[j]);
+            // }
             (0..vecs.len()).for_each(|i| hasher.update_field_element(&(vecs[i]).poly[j]));
             hasher.finalize_fixed()
         })
         .collect();
+
+    // let mut hashes = Vec::<Output<H>>::new();
+    // for j in 0..vecs[0].poly.len() {
+    //     let mut hasher = H::new();
+    //     for i in 0..vecs.len() {
+    //         hasher.update_field_element(&(vecs[i]).poly[j]);
+    //     }
+    //     hashes.push(hasher.finalize_fixed());
+    // }
 
     let mut merkle_tree = Vec::<Vec<Output<H>>>::new();
     let depth = hashes.len().ilog2();
@@ -1777,8 +1787,12 @@ fn batch_merkelize<F: PrimeField, H: Hash>(vecs: &Vec<Type1Polynomial<F>>) -> Ve
             .collect();
         merkle_tree.push(hashes);
     }
-
-    merkle_tree
+    // println!(
+    //     "Layer 0 size = {}",
+    //     merkle_tree[merkle_tree.len() - 1].len()
+    // );
+    //merkle_tree
+    merkle_tree[1..].to_vec()
 }
 
 pub fn basefold_batch_open<F, H, S>(
@@ -1958,11 +1972,11 @@ pub fn basefold_batch_open<F, H, S>(
     //     "Final eval outputted by sum-check = {:?}",
     //     codewords[codewords.len() - 1].poly[0] * eq_1
     // );
-    println!(
-        "Final eval outputted by sum-check = {:?}, codeword = {:?}",
-        combined_poly[0],
-        codewords[codewords.len() - 1].poly[0]
-    );
+    // println!(
+    //     "Final eval outputted by sum-check = {:?}, codeword = {:?}",
+    //     combined_poly[0],
+    //     codewords[codewords.len() - 1].poly[0]
+    // );
     println!(
         "Time for commit phase of basefold batch open {:?}",
         now.elapsed()
@@ -1971,8 +1985,12 @@ pub fn basefold_batch_open<F, H, S>(
     // Query phase
     let now = Instant::now();
     let num_queries = pp.num_verifier_queries;
+    println!(
+        "combined_codeword.poly.len() = {}",
+        comm.codeword.poly.len()
+    );
     let queries: Vec<usize> = (0..num_queries)
-        .map(|_| squeeze_challenge_idx(transcript, combined_codeword.poly.len() / 2))
+        .map(|_| squeeze_challenge_idx(transcript, comm.codeword.poly.len() / 2))
         .collect();
     // println!(
     //     "combined_codeword.poly.len() = {}",
@@ -1985,17 +2003,40 @@ pub fn basefold_batch_open<F, H, S>(
         transcript.write_field_element(&comm.codeword.poly[2 * query + 1]);
         write_merkle_path::<F, H>(2 * query, &comm.codeword_tree, transcript);
 
+        // TEST CODE
+        let mut hasher_1 = H::new();
+        let mut hasher_2 = H::new();
+
         batch_comm_1.codewords.iter().for_each(|codeword| {
             transcript.write_field_element(&codeword.poly[2 * query]);
             transcript.write_field_element(&codeword.poly[2 * query + 1]);
+            hasher_1.update_field_element(&codeword.poly[2 * query]);
+            hasher_2.update_field_element(&codeword.poly[2 * query + 1]);
         });
-        write_merkle_path::<F, H>(2 * query, &comm.codeword_tree, transcript);
+        let hash_1 = hasher_1.finalize_fixed();
+        let hash_2 = hasher_2.finalize_fixed();
+        let mut hasher_3 = H::new();
+        hasher_3.update(&hash_1);
+        hasher_3.update(&hash_2);
+        let hash_3 = hasher_3.finalize_fixed();
+        if i == 0 {
+            // println!("Computed hashes = {:?}, {:?}", hash_1, hash_2);
+            // println!(
+            //     "Stored hashed = {:?}, {:?}",
+            //     batch_comm_1.codeword_tree[0][2 * query],
+            //     batch_comm_1.codeword_tree[0][2 * query + 1]
+            // );
+            // println!("Computed hashes = {:?}", hash_3);
+        }
+        // assert_eq!(hash_3, comm.codeword_tree[0][query]);
+        write_merkle_path::<F, H>(2 * query, &batch_comm_1.codeword_tree, transcript);
 
         batch_comm_2.codewords.iter().for_each(|codeword| {
             transcript.write_field_element(&codeword.poly[2 * query]);
             transcript.write_field_element(&codeword.poly[2 * query + 1]);
         });
-        write_merkle_path::<F, H>(2 * query, &comm.codeword_tree, transcript);
+        write_merkle_path::<F, H>(2 * query, &batch_comm_2.codeword_tree, transcript);
+
         query >>= 1;
 
         for iter in 1..num_rounds + 1 {
@@ -2091,14 +2132,14 @@ where
     let final_eval = eval * eq.invert().unwrap();
     let final_oracle = &oracles[oracles.len() - 1];
     let final_oracle_plain = vec![final_eval; 1 << vp.log_rate];
-    println!("Final eval on verifier side = {:?}", final_eval);
+    // println!("Final eval on verifier side = {:?}", final_eval);
     let temp = basefold::merkelize::<F, H>(&Type1Polynomial {
         poly: final_oracle_plain,
     });
     let final_oracle_computed = &temp[temp.len() - 1][0];
 
     for i in 0..final_oracle.len() {
-        let a = final_oracle_computed[i];
+        //let a = final_oracle_computed[i];
         if final_oracle_computed[i] != final_oracle[i] {
             println!("Bad query = {i}");
             println!(
@@ -2109,7 +2150,7 @@ where
         }
     }
 
-    println!("Verifying all oracles");
+    // println!("Verifying all oracles");
     // Verify that all oracles are correct
     let mut key: [u8; 16] = [0u8; 16];
     let mut iv: [u8; 16] = [0u8; 16];
@@ -2124,9 +2165,9 @@ where
         .map(|i| squeeze_challenge_idx(transcript, (1 << vp.log_rate) * (1 << vp.num_vars) / 2))
         .collect();
 
-    println!("Num queries = {}", num_queries);
+    // println!("Num queries = {}", num_queries);
     for i in 0..num_queries {
-        println!("Query {i}.1");
+        // println!("Query {i}.1");
         let mut elems = Vec::<(F, F)>::with_capacity(num_queries);
         elems.push((F::ZERO, F::ZERO));
         let mut query_idx = queries[i];
@@ -2140,9 +2181,10 @@ where
             .read_commitments(vp.log_rate + vp.num_vars)
             .unwrap();
         // println!("Merkle path len = {}", merkle_path.len());
+        // println!("Query  = {i}");
         authenticate_merkle_path::<F, H>(2 * query_idx, (elem_1, elem_2), merkle_path, &comm);
 
-        println!("Query {i}.2");
+        // println!("Query {i}.2");
         // Reading the queried elements and Merkle path for h_erow and h_ecol
         let mut hasher_1 = H::new();
         let mut hasher_2 = H::new();
@@ -2161,26 +2203,33 @@ where
             .read_commitments(vp.log_rate + vp.num_vars)
             .unwrap();
         // println!("Merkle path len = {}", merkle_path.len());
+        // println!("Merkle path = {:?}", merkle_path);
         let hash_1 = hasher_1.finalize_fixed();
         let hash_2 = hasher_2.finalize_fixed();
+        // if i == 0 {
+        //     println!(
+        //         "Computed hashes on verifier side = {:?} {:?}",
+        //         hash_1, hash_2
+        //     );
+        // }
         authenticate_merkle_path_hash::<F, H>(
             2 * query_idx,
             (hash_1, hash_2),
             merkle_path,
             &batch_comm_1,
         );
-        println!("Query {i}.3");
+        // println!("Query {i}.3");
         // Reading the queried elements and Merkle path for h_val, h_row, h_col,
         // read_ts_row, read_ts_col, final_ts_row_col
         let mut hasher_1 = H::new();
         let mut hasher_2 = H::new();
         for j in 0..6 {
             if i == 0 {
-                println!("For commitment {j}");
+                // println!("For commitment {j}");
             }
             elem_1 = transcript.read_field_element().unwrap();
             elem_2 = transcript.read_field_element().unwrap();
-            println!("Reads = {}", vp.log_rate + vp.num_vars);
+            // println!("Reads = {}", vp.log_rate + vp.num_vars);
             hasher_1.update_field_element(&elem_1);
             hasher_2.update_field_element(&elem_2);
             elems[0].0 += random_combiners[j + 3] * elem_1;
@@ -2202,9 +2251,9 @@ where
         query_idx = query_idx / 2;
 
         for iter in 1..num_rounds + 1 {
-            if iter == 1 {
-                println!("In loop 1");
-            }
+            // if iter == 1 {
+            //     println!("In loop 1");
+            // }
             elem_1 = transcript.read_field_element().unwrap();
             elem_2 = transcript.read_field_element().unwrap();
             elems.push((elem_1, elem_2));
@@ -2212,6 +2261,7 @@ where
             let merkle_path = transcript
                 .read_commitments(vp.log_rate + vp.num_vars - iter)
                 .unwrap();
+            // println!("Query = {i}, iter = {iter}");
             authenticate_merkle_path::<F, H>(
                 2 * query_idx,
                 (elem_1, elem_2),
@@ -2224,9 +2274,9 @@ where
         query_idx = queries[i];
 
         for iter in 1..elems.len() {
-            if iter == 0 {
-                println!("In loop 2");
-            }
+            // if iter == 1 {
+            //     println!("In loop 2");
+            // }
             let ri0 = reverse_bits(2 * query_idx, vp.num_vars + vp.log_rate - iter + 1);
             let ri1 = reverse_bits(2 * query_idx + 1, vp.num_vars + vp.log_rate - iter + 1);
 
@@ -2244,6 +2294,7 @@ where
                 &mut cipher,
             );
             let x1 = -x0;
+            // println!("Iter = {i}, x_0 = {:?}", x0);
 
             let mut c1 = elems[iter - 1].0 + elems[iter - 1].1;
             c1 = c1 * f_2_inv;
@@ -2254,12 +2305,14 @@ where
             if query_idx % 2 == 0 {
                 if c != elems[iter].0 {
                     println!("ORACLES INCONSISTENT!");
-                    return return Err(Error::InvalidPcsOpen("Oracles inconsistent".to_string()));
+                    println!("Iter {iter}");
+                    return Err(Error::InvalidPcsOpen("Oracles inconsistent".to_string()));
                 }
             } else {
                 if c != elems[iter].1 {
                     println!("ORACLES INCONSISTENT!");
-                    return return Err(Error::InvalidPcsOpen("Oracles inconsistent".to_string()));
+                    println!("Iter {iter}");
+                    return Err(Error::InvalidPcsOpen("Oracles inconsistent".to_string()));
                 }
             }
             query_idx /= 2;
@@ -2281,6 +2334,29 @@ fn write_merkle_path<F: PrimeField, H: Hash>(
         idx >>= 1;
     }
     transcript.write_commitment(&merkle_tree[path_len - 1][0]);
+}
+
+fn write_merkle_path_2<F: PrimeField, H: Hash>(
+    mut idx: usize,
+    merkle_tree: &Vec<Vec<Output<H>>>,
+    transcript: &mut Vec<Output<H>>,
+) {
+    let path_len = merkle_tree.len();
+    idx >>= 1;
+    assert!(idx < (1 << path_len - 1));
+    for i in 0..path_len - 1 {
+        if idx % 2 == 0 {
+            transcript.push(merkle_tree[i][idx + 1].clone());
+            //transcript.write_commitment(&merkle_tree[i][idx + 1]);
+        } else {
+            transcript.push(merkle_tree[i][idx - 1].clone());
+            //transcript.write_commitment(&merkle_tree[i][idx - 1]);
+        }
+        //transcript.write_commitment(&merkle_tree[i][idx ^ 1]);
+        idx >>= 1;
+    }
+    transcript.push(merkle_tree[path_len - 1][0].clone());
+    //transcript.write_commitment(&merkle_tree[path_len - 1][0]);
 }
 
 fn authenticate_merkle_path<F: PrimeField, H: Hash>(
@@ -2309,10 +2385,18 @@ fn authenticate_merkle_path<F: PrimeField, H: Hash>(
         }
         idx >>= 1;
     }
+    // println!("computed root = {:?}", hash);
+    // println!(
+    //     "given root = {:?}, len = {}",
+    //     merkle_path[path_len - 1],
+    //     merkle_path.len()
+    // );
     for i in 0..merkle_path[path_len - 1].len() {
         let h_1 = merkle_path[path_len - 1][i];
         let h_2 = root[i];
+        let h_3 = hash[i];
         assert_eq!(h_1, h_2);
+        assert_eq!(h_2, h_3);
         if h_1 != h_2 {
             println!("ERROR in Merkle path opening!");
         }
@@ -2333,6 +2417,11 @@ fn authenticate_merkle_path_hash<F: PrimeField, H: Hash>(
     hasher.update(&elems.0);
     hasher.update(&elems.1);
     let mut hash = hasher.finalize_fixed();
+    // println!("elems.1 = {:?}", elems.1);
+    // println!("Merkle path [0] = {:?}", merkle_path[0]);
+    // if elems.1 == merkle_path[0] {
+    //     println!("SAME");
+    // }
     for i in 0..path_len - 1 {
         let mut hasher = H::new();
         if idx % 2 == 0 {
@@ -2345,14 +2434,19 @@ fn authenticate_merkle_path_hash<F: PrimeField, H: Hash>(
             hash = hasher.finalize_fixed();
         }
         idx >>= 1;
+        // println!("Merkle path [{}] = {:?}", i + 1, hash);
     }
+    // println!("computed root = {:?}", hash);
+    // println!("given root = {:?}", merkle_path[path_len - 1]);
     for i in 0..merkle_path[path_len - 1].len() {
         let h_1 = merkle_path[path_len - 1][i];
         let h_2 = root[i];
+        let h_3 = hash[i];
+        // if h_1 != h_2 || h_2 != h_3 {
+        //     println!("ERROR in Merkle path opening! Bad index {i}.");
+        // }
         assert_eq!(h_1, h_2);
-        if h_1 != h_2 {
-            println!("ERROR in Merkle path opening!");
-        }
+        assert_eq!(h_2, h_3);
     }
     // if merkle_path[path_len - 1] != *root {
     //     println!("ERROR in Merkle path opening!");
@@ -2365,10 +2459,11 @@ fn authenticate_merkle_path_hash<F: PrimeField, H: Hash>(
 
 #[cfg(test)]
 mod test {
+    use crate::pcs::multilinear::basefold::Type1Polynomial;
     use crate::pcs::PolynomialCommitmentScheme;
     use crate::util::ff_255::ft127::Ft127;
     use crate::util::transcript::{
-        FieldTranscript, FieldTranscriptRead, FieldTranscriptWrite, InMemoryTranscript,
+        self, FieldTranscript, FieldTranscriptRead, FieldTranscriptWrite, InMemoryTranscript,
         TranscriptRead, TranscriptWrite,
     };
 
@@ -2393,6 +2488,7 @@ mod test {
             transcript::{Blake2sTranscript, Keccak256Transcript},
         },
     };
+    //use blake2b_simd::Hash;
     use halo2_curves::{ff::Field, secp256k1::Fp};
     use plonky2_util::reverse_index_bits_in_place;
     use rand_chacha::{
@@ -2402,7 +2498,7 @@ mod test {
     use std::io;
 
     //use crate::pcs::multilinear::basefold::Instant;
-    use crate::pcs::multilinear::{Basefold, BasefoldExtParams};
+    use crate::pcs::multilinear::{basefold, Basefold, BasefoldExtParams};
     use crate::util::arithmetic::PrimeField;
     use blake2::{digest::FixedOutputReset, Blake2s256};
     use halo2_curves::bn256::{Bn256, Fr};
@@ -2412,7 +2508,10 @@ mod test {
         BrakedownSpec5, BrakedownSpec6, LinearCodes,
     };
 
-    use super::{eq, point_to_tensor, Brakingbase, BrakingbaseSpec};
+    use super::{
+        authenticate_merkle_path, eq, point_to_tensor, write_merkle_path, write_merkle_path_2,
+        Brakingbase, BrakingbaseSpec,
+    };
 
     #[derive(Debug)]
     pub struct Five {}
@@ -2445,6 +2544,38 @@ mod test {
 
     type Pcs = Brakingbase<Fr, Blake2s256, Five>;
     type Pcs_basefold = Basefold<Fr, Blake2s256, Five>;
+
+    #[test]
+    fn test_merkle_paths() {
+        let mut msg = vec![Fr::ZERO; 4096];
+        for i in 1..msg.len() {
+            msg[i] = msg[i - 1];
+        }
+
+        let merkle_tree =
+            basefold::merkelize::<Fr, Blake2s256>(&Type1Polynomial { poly: msg.clone() });
+        let mut transcript = Vec::<Output<Blake2s256>>::new();
+
+        let idx = 767;
+        write_merkle_path_2::<Fr, Blake2s256>(idx, &merkle_tree, &mut transcript);
+        let path_len = transcript.len();
+
+        let mut elems = (Fr::ZERO, Fr::ZERO);
+        if idx % 2 == 0 {
+            elems.0 = msg[idx];
+            elems.1 = msg[idx + 1];
+        } else {
+            elems.0 = msg[idx + 1];
+            elems.1 = msg[idx];
+        }
+
+        authenticate_merkle_path::<Fr, Blake2s256>(
+            idx,
+            elems,
+            transcript,
+            &merkle_tree[merkle_tree.len() - 1][0],
+        );
+    }
 
     #[test]
     fn test_eq() {
