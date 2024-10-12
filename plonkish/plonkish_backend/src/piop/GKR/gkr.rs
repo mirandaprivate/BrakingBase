@@ -12,7 +12,10 @@ use crate::{
     util::transcript::TranscriptWrite,
 };
 use ff::PrimeField;
-use rayon::iter::{IndexedParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
+use rayon::iter::{
+    IndexedParallelIterator, IntoParallelIterator, IntoParallelRefMutIterator, ParallelIterator,
+};
+use rayon::slice::{ParallelSlice, ParallelSliceMut};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
@@ -108,34 +111,45 @@ pub fn gkr_prover<F: PrimeField + Serialize + DeserializeOwned, H: Hash, S: Brak
 
             //We compute the sum over all binary strings for the remaining variables, parallelised over the circuits.
             eval.par_iter_mut().enumerate().for_each(|(c, eval_c)| {
-                for j in 0..halfsize {
-                    //We use the fact that for any multilinear polynomial W in variables, x_1, ..., x_d+1,
-                    //W(x_1, ..., x_d+1) = (1-x_1).W(x_1, ... , x_d,0) + x_1.W(x_1,...,x_d,1).
-                    let child_left_temp =
-                        child_left_extension[c][j + halfsize] - child_left_extension[c][j];
-                    let child_right_temp =
-                        child_right_extension[c][j + halfsize] - child_right_extension[c][j];
+                (eval_c[0], eval_c[1], eval_c[2], eval_c[3]) = (0..halfsize)
+                    .into_par_iter()
+                    .map(|j| {
+                        //We use the fact that for any multilinear polynomial W in variables, x_1, ..., x_d+1,
+                        //W(x_1, ..., x_d+1) = (1-x_1).W(x_1, ... , x_d,0) + x_1.W(x_1,...,x_d,1).
+                        let child_left_temp =
+                            child_left_extension[c][j + halfsize] - child_left_extension[c][j];
+                        let child_right_temp =
+                            child_right_extension[c][j + halfsize] - child_right_extension[c][j];
 
-                    //Evaluation at 0
-                    eval_c[0] += lagrange_bases_eval[j]
-                        * child_left_extension[c][j]
-                        * child_right_extension[c][j];
-
-                    //Evaluation at 1
-                    eval_c[1] += lagrange_bases_eval[j + halfsize]
-                        * child_left_extension[c][j + halfsize]
-                        * child_right_extension[c][j + halfsize];
-
-                    //Evaluation at -1
-                    eval_c[2] += (lagrange_bases_eval[j] - lagrange_bases_lin_coeff[j])
-                        * (child_left_extension[c][j] - child_left_temp)
-                        * (child_right_extension[c][j] - child_right_temp);
-
-                    //Evaluation at 2
-                    eval_c[3] += (lagrange_bases_eval[j + halfsize] + lagrange_bases_lin_coeff[j])
-                        * (child_left_extension[c][j + halfsize] + child_left_temp)
-                        * (child_right_extension[c][j + halfsize] + child_right_temp);
-                }
+                        //Evaluation at 0
+                        (
+                            lagrange_bases_eval[j]
+                                * child_left_extension[c][j]
+                                * child_right_extension[c][j],
+                            //Evaluation at 1
+                            lagrange_bases_eval[j + halfsize]
+                                * child_left_extension[c][j + halfsize]
+                                * child_right_extension[c][j + halfsize],
+                            //Evaluation at -1
+                            (lagrange_bases_eval[j] - lagrange_bases_lin_coeff[j])
+                                * (child_left_extension[c][j] - child_left_temp)
+                                * (child_right_extension[c][j] - child_right_temp),
+                            //Evaluation at 2
+                            (lagrange_bases_eval[j + halfsize] + lagrange_bases_lin_coeff[j])
+                                * (child_left_extension[c][j + halfsize] + child_left_temp)
+                                * (child_right_extension[c][j + halfsize] + child_right_temp),
+                        )
+                    })
+                    .fold_with(
+                        (F::ZERO, F::ZERO, F::ZERO, F::ZERO),
+                        |(acc0, acc1, acc2, acc3), (val0, val1, val2, val3)| {
+                            (acc0 + val0, acc1 + val1, acc2 + val2, acc3 + val3)
+                        },
+                    )
+                    .reduce_with(|(acc0, acc1, acc2, acc3), (val0, val1, val2, val3)| {
+                        (acc0 + val0, acc1 + val1, acc2 + val2, acc3 + val3)
+                    })
+                    .unwrap();
             });
 
             //We conduct the inverse linear transform fromthe evaluations to get the coefficients of the circuit-wise polynomials.
@@ -176,8 +190,9 @@ pub fn gkr_prover<F: PrimeField + Serialize + DeserializeOwned, H: Hash, S: Brak
                 .par_iter_mut()
                 .zip(child_right_extension.par_iter_mut())
                 .for_each(|(child_left_extension_c, child_right_extension_c)| {
-                    *child_left_extension_c = fold_by_msb(child_left_extension_c, random_point);
-                    *child_right_extension_c = fold_by_msb(child_right_extension_c, random_point);
+                    *child_left_extension_c = par_fold_by_msb(child_left_extension_c, random_point);
+                    *child_right_extension_c =
+                        par_fold_by_msb(child_right_extension_c, random_point);
                 });
         }
 
@@ -186,12 +201,12 @@ pub fn gkr_prover<F: PrimeField + Serialize + DeserializeOwned, H: Hash, S: Brak
         // variable to the random values obtained over the sum-check for the current layer. The last variable
         // is understood to be fixed to 0 and 1 respectively to obtain the MLEs of child_left and child_right
         // respectively.
-
         let mut mle_layer_evaluation = Vec::new();
-        for c in 0..n_circuits {
+        (0..n_circuits).for_each(|c| {
             let mle_eval = vec![child_left_extension[c][0], child_right_extension[c][0]];
             mle_layer_evaluation.extend(mle_eval);
-        }
+        });
+
         transcript
             .write_field_elements(&mle_layer_evaluation)
             .unwrap();
@@ -201,7 +216,7 @@ pub fn gkr_prover<F: PrimeField + Serialize + DeserializeOwned, H: Hash, S: Brak
         sum_check_random_points[0] = r;
         initial_random_point = sum_check_random_points
     }
-    
+
     initial_random_point.reverse();
     initial_random_point
 }

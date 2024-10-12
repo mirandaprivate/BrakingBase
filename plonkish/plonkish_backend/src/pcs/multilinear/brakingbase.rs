@@ -615,7 +615,6 @@ where
             || {
                 grand_product_circuits(
                     2 * row_len,
-                    pp.parity_check_matrix.row.len(),
                     basefold_poly_size,
                     &h_row,
                     &h_erow,
@@ -628,7 +627,6 @@ where
             || {
                 grand_product_circuits::<F>(
                     2 * row_len,
-                    pp.parity_check_matrix.col.len(),
                     basefold_poly_size,
                     &h_col,
                     &h_ecol,
