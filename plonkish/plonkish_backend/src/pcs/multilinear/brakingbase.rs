@@ -1511,19 +1511,31 @@ pub(crate) fn batch_sum_check_prover<
             .zip(&eqs)
             .map(|(poly, eq_coeff)| {
                 let halfsize = poly.len() / 2;
-                let mut eval = [F::ZERO; 3];
-                for k in 0..halfsize {
-                    let coeff_k = eq_coeff[k];
-                    let coeff_k1 = eq_coeff[k + halfsize];
-                    let poly_k = poly[k];
-                    let poly_k1 = poly[k + halfsize];
-
-                    eval[0] += coeff_k * poly_k;
-                    eval[1] += coeff_k1 * poly_k1;
-                    eval[2] += (coeff_k1.double() - coeff_k) * (poly_k1.double() - poly_k);
-                }
-
-                eval.to_vec()
+                let mut eval = vec![F::ZERO; 3];
+                (eval[0], eval[1], eval[2]) = (0..halfsize)
+                    .into_par_iter()
+                    .map(|k| {
+                        let coeff_k = eq_coeff[k];
+                        let coeff_k1 = eq_coeff[k + halfsize];
+                        let poly_k = poly[k];
+                        let poly_k1 = poly[k + halfsize];
+                        (
+                            coeff_k * poly_k,
+                            coeff_k1 * poly_k1,
+                            (coeff_k1.double() - coeff_k) * (poly_k1.double() - poly_k),
+                        )
+                    })
+                    .fold_with(
+                        (F::ZERO, F::ZERO, F::ZERO),
+                        |(acc0, acc1, acc2), (val0, val1, val2)| {
+                            (acc0 + val0, acc1 + val1, acc2 + val2)
+                        },
+                    )
+                    .reduce_with(|(acc0, acc1, acc2), (val0, val1, val2)| {
+                        (acc0 + val0, acc1 + val1, acc2 + val2)
+                    })
+                    .unwrap();
+                eval
             })
             .collect();
 

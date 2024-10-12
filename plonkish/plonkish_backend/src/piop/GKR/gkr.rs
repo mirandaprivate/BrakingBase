@@ -82,13 +82,17 @@ pub fn gkr_prover<F: PrimeField + Serialize + DeserializeOwned, H: Hash, S: Brak
         let mut child_left_extension = vec![vec![F::ONE; layer_size]; n_circuits];
         let mut child_right_extension = vec![vec![F::ONE; layer_size]; n_circuits];
 
-        for i in 0..layer_size {
-            for c in 0..n_circuits {
-                child_left_extension[c][i] = circuits[c][layer - 1][2 * i];
-                child_right_extension[c][i] = circuits[c][layer - 1][2 * i + 1]
-            }
-        }
-
+        child_left_extension
+            .par_iter_mut()
+            .zip(child_right_extension.par_iter_mut())
+            .enumerate()
+            .for_each(|(c, (left, right))| {
+                for i in 0..layer_size {
+                    left[i] = circuits[c][layer - 1][2 * i];
+                    right[i] = circuits[c][layer - 1][2 * i + 1]
+                }
+            });
+        
         //This is the sum check instance for this layer.
         for i in 0..current_depth {
             //This contains the circuit-wise values for univariate polynomial to be sent evaluated at 0,1,-1 and 2.
@@ -157,11 +161,14 @@ pub fn gkr_prover<F: PrimeField + Serialize + DeserializeOwned, H: Hash, S: Brak
                 .for_each(|eval_c| len_4_interpolate(eval_c));
 
             //We add the linear combination of the coefficients to get the batched polynomial for the sum check verifieer to verify.
-            for c in 0..n_circuits {
-                for k in 0..4 {
-                    combined_polynomial[k] += random_coeff[c] * eval[c][k];
-                }
-            }
+            combined_polynomial
+                .par_iter_mut()
+                .enumerate()
+                .for_each(|(k, poly)| {
+                    for c in 0..n_circuits {
+                        *poly += random_coeff[c] * eval[c][k];
+                    }
+                });
 
             //The next round's random point is obtained by reseeding with this round's batched polynomial as a vector of scalars
             // and then drawing from the channel.
@@ -174,9 +181,7 @@ pub fn gkr_prover<F: PrimeField + Serialize + DeserializeOwned, H: Hash, S: Brak
 
             //Now we fix the leading variable of the the multilinear polynomials lagrange_bases_eval, child_left and child_right to get multilinear polynomials
             //in one less variable for the next sum check round
-
             //Since lagrange_bases_eval is a common computation accross circuits, we fold it in parallel separately.
-
             if i < 8 {
                 lagrange_bases_eval = fold_by_msb(&lagrange_bases_eval, random_point)
             } else {
@@ -201,11 +206,14 @@ pub fn gkr_prover<F: PrimeField + Serialize + DeserializeOwned, H: Hash, S: Brak
         // variable to the random values obtained over the sum-check for the current layer. The last variable
         // is understood to be fixed to 0 and 1 respectively to obtain the MLEs of child_left and child_right
         // respectively.
-        let mut mle_layer_evaluation = Vec::new();
-        (0..n_circuits).for_each(|c| {
-            let mle_eval = vec![child_left_extension[c][0], child_right_extension[c][0]];
-            mle_layer_evaluation.extend(mle_eval);
-        });
+        let mut mle_layer_evaluation = vec![F::ZERO; n_circuits * 2];
+        mle_layer_evaluation
+            .par_chunks_mut(2)
+            .enumerate()
+            .for_each(|(c, eval)| {
+                eval[0] = child_left_extension[c][0];
+                eval[1] = child_right_extension[c][0];
+            });
 
         transcript
             .write_field_elements(&mle_layer_evaluation)

@@ -18,9 +18,7 @@ pub fn evaluate_poly<F: PrimeField>(coeffs: &Vec<F>, point: &Vec<F>) -> F {
 pub fn point_to_tensor<F: PrimeField>(num_rows: usize, point: &[F]) -> (Vec<F>, Vec<F>) {
     assert!(num_rows.is_power_of_two());
     let (hi, lo) = point.split_at(point.len() - (num_rows.ilog2() as usize));
-    let t_0 = eq_xy(lo); // switch t_0 and t_1
-    let t_1 = eq_xy(hi);
-    (t_0, t_1)
+    rayon::join(|| eq_xy(lo), || eq_xy(hi))
 }
 
 pub fn partial_evaluate_poly<F: PrimeField>(coeffs: &Vec<F>, point: &Vec<F>, skip: usize) -> F {
@@ -35,7 +33,7 @@ pub fn eq<F: PrimeField>(mut idx: usize, point: &Vec<F>) -> F {
     let mut res = F::ONE;
     for i in 1..=point.len() {
         let bit = idx - ((idx >> 1) << 1);
-        let f_bit = F::try_from(bit as u64).unwrap();
+        let f_bit = F::from(bit as u64);
         res *=
             f_bit * point[point.len() - i] + (F::ONE - f_bit) * (F::ONE - point[point.len() - i]);
         idx = idx >> 1;
@@ -94,9 +92,7 @@ pub fn eq_xy<F: PrimeField>(y: &[F]) -> Vec<F> {
 pub fn point_to_tensor_for_commit<F: PrimeField>(num_rows: usize, point: &[F]) -> (Vec<F>, Vec<F>) {
     assert!(num_rows.is_power_of_two());
     let (hi, lo) = point.split_at((num_rows.ilog2() as usize));
-    let x_0 = eq_xy(hi);
-    let x_1 = eq_xy(lo);
-    (x_0, x_1)
+    rayon::join(|| eq_xy(hi), || eq_xy(lo))
 }
 pub fn len_3_interpolate<F: PrimeField>(eval: &mut Vec<F>) {
     let t0 = eval[0] - eval[1].double();
@@ -114,15 +110,11 @@ pub fn eval<F: PrimeField>(p: &[F], x: F) -> F {
 }
 
 pub fn evaluate_eq<F: PrimeField>(r_x: &Vec<F>, r_y: &Vec<F>) -> F {
-    let mut temp = F::ONE;
     assert_eq!(r_x.len(), r_y.len());
-    // r_x.into_par_iter()
-    //     .zip_eq(r_y.into_par_iter())
-    //     .map(|(rx, ry)| *rx * *ry + (F::ONE - rx) * (F::ONE - ry))
-    //     .fold_with(|acc, (val1, val2)| acc + val1 + val2)
-    //     .reduce_with(|acc, (val1, val2)| acc + val1 + val2).unwrap()
-    for k in 0..r_y.len() {
-        temp = temp * ((r_x[k] * r_y[k]) + ((F::ONE - r_x[k]) * (F::ONE - r_y[k])));
-    }
-    temp
+    r_x.into_par_iter()
+        .zip_eq(r_y.into_par_iter())
+        .map(|(rx, ry)| *rx * *ry + (F::ONE - rx) * (F::ONE - ry))
+        .fold_with(F::ONE, |acc, val| acc * val)
+        .reduce_with(|acc, val| acc * val)
+        .unwrap()
 }
