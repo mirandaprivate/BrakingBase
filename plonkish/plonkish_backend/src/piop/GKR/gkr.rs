@@ -38,7 +38,7 @@ impl<F: PrimeField> GkrTranscript<F> {
 }
 //Prover for the sub-circuit corresponding to the leaf layer inputs of length of the table.
 pub fn gkr_prover<F: PrimeField + Serialize + DeserializeOwned, H: Hash, S: BrakingbaseSpec>(
-    circuits: &Vec<Vec<Vec<F>>>,
+    circuits: &Vec<&Vec<Vec<F>>>,
     transcript: &mut impl TranscriptWrite<
         <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::CommitmentChunk,
         F,
@@ -201,6 +201,7 @@ pub fn gkr_prover<F: PrimeField + Serialize + DeserializeOwned, H: Hash, S: Brak
         sum_check_random_points[0] = r;
         initial_random_point = sum_check_random_points
     }
+    
     initial_random_point.reverse();
     initial_random_point
 }

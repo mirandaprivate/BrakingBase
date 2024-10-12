@@ -9,12 +9,11 @@ use rayon::iter::{
 };
 
 pub fn evaluate_poly<F: PrimeField>(coeffs: &Vec<F>, point: &Vec<F>) -> F {
-    let mut eval = F::ZERO;
     let tensor_point = point_to_tensor(1, point).1;
-    for i in 0..tensor_point.len() {
-        eval += coeffs[i] * tensor_point[i];
-    }
-    eval
+    coeffs
+        .iter()
+        .zip(tensor_point.iter())
+        .fold(F::ZERO, |acc, (coeff, tp)| acc + (*coeff * *tp))
 }
 pub fn point_to_tensor<F: PrimeField>(num_rows: usize, point: &[F]) -> (Vec<F>, Vec<F>) {
     assert!(num_rows.is_power_of_two());
@@ -27,17 +26,16 @@ pub fn point_to_tensor<F: PrimeField>(num_rows: usize, point: &[F]) -> (Vec<F>, 
 pub fn partial_evaluate_poly<F: PrimeField>(coeffs: &Vec<F>, point: &Vec<F>, skip: usize) -> F {
     let mut eval = F::ZERO;
     let tensor_point = point_to_tensor(1 << (point.len() - skip), point).0;
-    for i in 0..tensor_point.len() {
-        eval += coeffs[i] * tensor_point[i];
-    }
-    eval
+    coeffs
+        .iter()
+        .zip(tensor_point.iter())
+        .fold(F::ZERO, |acc, (coeff, tp)| acc + (*coeff * *tp))
 }
 pub fn eq<F: PrimeField>(mut idx: usize, point: &Vec<F>) -> F {
     let mut res = F::ONE;
     for i in 1..=point.len() {
         let bit = idx - ((idx >> 1) << 1);
         let f_bit = F::try_from(bit as u64).unwrap();
-        //assert_ne!(point[point.len() - i], F::ZERO);
         res *=
             f_bit * point[point.len() - i] + (F::ONE - f_bit) * (F::ONE - point[point.len() - i]);
         idx = idx >> 1;
@@ -46,11 +44,9 @@ pub fn eq<F: PrimeField>(mut idx: usize, point: &Vec<F>) -> F {
 }
 pub fn fold_by_msb<F: PrimeField>(poly: &Vec<F>, point: F) -> Vec<F> {
     let halfsize = poly.len() >> 1;
-    let mut res = vec![F::ZERO; halfsize];
-    for k in 0..halfsize {
-        res[k] = poly[k] + (poly[k + halfsize] - poly[k]) * point;
-    }
-    res
+    (0..halfsize)
+        .map(|k| poly[k] + (poly[k + halfsize] - poly[k]) * point)
+        .collect()
 }
 
 pub fn par_fold_by_msb<F: PrimeField>(poly: &Vec<F>, point: F) -> Vec<F> {

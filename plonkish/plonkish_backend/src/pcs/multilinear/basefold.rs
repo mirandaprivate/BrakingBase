@@ -318,7 +318,7 @@ where
         Ok(Self::Commitment {
             codeword: commitment,
             codeword_tree: tree,
-            bh_evals: bh_evals,
+            bh_evals,
         })
     }
 
