@@ -4,7 +4,9 @@ use crate::util::{
     parallel::{num_threads, parallelize_iter},
 };
 use ff::PrimeField;
-use rayon::iter::{IndexedParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
+use rayon::iter::{
+    IndexedParallelIterator, IntoParallelIterator, IntoParallelRefMutIterator, ParallelIterator,
+};
 
 pub fn evaluate_poly<F: PrimeField>(coeffs: &Vec<F>, point: &Vec<F>) -> F {
     let mut eval = F::ZERO;
@@ -118,6 +120,11 @@ pub fn eval<F: PrimeField>(p: &[F], x: F) -> F {
 pub fn evaluate_eq<F: PrimeField>(r_x: &Vec<F>, r_y: &Vec<F>) -> F {
     let mut temp = F::ONE;
     assert_eq!(r_x.len(), r_y.len());
+    // r_x.into_par_iter()
+    //     .zip_eq(r_y.into_par_iter())
+    //     .map(|(rx, ry)| *rx * *ry + (F::ONE - rx) * (F::ONE - ry))
+    //     .fold_with(|acc, (val1, val2)| acc + val1 + val2)
+    //     .reduce_with(|acc, (val1, val2)| acc + val1 + val2).unwrap()
     for k in 0..r_y.len() {
         temp = temp * ((r_x[k] * r_y[k]) + ((F::ONE - r_x[k]) * (F::ONE - r_y[k])));
     }

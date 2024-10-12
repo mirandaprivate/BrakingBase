@@ -1,6 +1,4 @@
-use crate::{
-    pcs::multilinear::brakingbase_helper::evaluate_eq, util::transcript::FieldTranscriptRead,
-};
+use crate::pcs::multilinear::brakingbase_helper::evaluate_eq;
 use ff::PrimeField;
 use rayon::{
     iter::{IndexedParallelIterator, ParallelIterator},
