@@ -11,9 +11,11 @@ use rayon::iter::{
 pub fn evaluate_poly<F: PrimeField>(coeffs: &Vec<F>, point: &Vec<F>) -> F {
     let tensor_point = point_to_tensor(1, point).1;
     coeffs
-        .iter()
-        .zip(tensor_point.iter())
-        .fold(F::ZERO, |acc, (coeff, tp)| acc + (*coeff * *tp))
+        .into_par_iter()
+        .zip(tensor_point.into_par_iter())
+        .fold(|| F::ZERO, |acc, (coeff, tp)| acc + (*coeff * tp))
+        .reduce_with(|acc, val| acc + val)
+        .unwrap()
 }
 pub fn point_to_tensor<F: PrimeField>(num_rows: usize, point: &[F]) -> (Vec<F>, Vec<F>) {
     assert!(num_rows.is_power_of_two());
@@ -25,9 +27,11 @@ pub fn partial_evaluate_poly<F: PrimeField>(coeffs: &Vec<F>, point: &Vec<F>, ski
     let mut eval = F::ZERO;
     let tensor_point = point_to_tensor(1 << (point.len() - skip), point).0;
     coeffs
-        .iter()
-        .zip(tensor_point.iter())
-        .fold(F::ZERO, |acc, (coeff, tp)| acc + (*coeff * *tp))
+        .into_par_iter()
+        .zip(tensor_point.into_par_iter())
+        .fold_with(F::ZERO, |acc, (coeff, tp)| acc + (*coeff * tp))
+        .reduce_with(|acc, val| acc + val)
+        .unwrap()
 }
 pub fn eq<F: PrimeField>(mut idx: usize, point: &Vec<F>) -> F {
     let mut res = F::ONE;

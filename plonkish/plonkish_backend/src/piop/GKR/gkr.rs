@@ -15,7 +15,7 @@ use ff::PrimeField;
 use rayon::iter::{
     IndexedParallelIterator, IntoParallelIterator, IntoParallelRefMutIterator, ParallelIterator,
 };
-use rayon::slice::{ParallelSlice, ParallelSliceMut};
+use rayon::slice::ParallelSliceMut;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
@@ -92,7 +92,7 @@ pub fn gkr_prover<F: PrimeField + Serialize + DeserializeOwned, H: Hash, S: Brak
                     right[i] = circuits[c][layer - 1][2 * i + 1]
                 }
             });
-        
+
         //This is the sum check instance for this layer.
         for i in 0..current_depth {
             //This contains the circuit-wise values for univariate polynomial to be sent evaluated at 0,1,-1 and 2.
@@ -125,29 +125,38 @@ pub fn gkr_prover<F: PrimeField + Serialize + DeserializeOwned, H: Hash, S: Brak
                         let child_right_temp =
                             child_right_extension[c][j + halfsize] - child_right_extension[c][j];
 
+                        rayon::join(
+                            || {
+                                rayon::join(
+                                    ||
                         //Evaluation at 0
-                        (
-                            lagrange_bases_eval[j]
+                         lagrange_bases_eval[j]
                                 * child_left_extension[c][j]
                                 * child_right_extension[c][j],
-                            //Evaluation at 1
+                                    ||    //Evaluation at 1
                             lagrange_bases_eval[j + halfsize]
                                 * child_left_extension[c][j + halfsize]
                                 * child_right_extension[c][j + halfsize],
-                            //Evaluation at -1
+                                )
+                            },
+                            || {
+                                rayon::join(
+                                    ||  //Evaluation at -1
                             (lagrange_bases_eval[j] - lagrange_bases_lin_coeff[j])
                                 * (child_left_extension[c][j] - child_left_temp)
                                 * (child_right_extension[c][j] - child_right_temp),
-                            //Evaluation at 2
+                                    ||//Evaluation at 2
                             (lagrange_bases_eval[j + halfsize] + lagrange_bases_lin_coeff[j])
                                 * (child_left_extension[c][j + halfsize] + child_left_temp)
                                 * (child_right_extension[c][j + halfsize] + child_right_temp),
+                                )
+                            },
                         )
                     })
                     .fold_with(
                         (F::ZERO, F::ZERO, F::ZERO, F::ZERO),
-                        |(acc0, acc1, acc2, acc3), (val0, val1, val2, val3)| {
-                            (acc0 + val0, acc1 + val1, acc2 + val2, acc3 + val3)
+                        |(acc0, acc1, acc2, acc3),val| {
+                            (acc0 + val.0.0, acc1 + val.0.1, acc2 + val.1.0, acc3 + val.1.1)
                         },
                     )
                     .reduce_with(|(acc0, acc1, acc2, acc3), (val0, val1, val2, val3)| {

@@ -3,9 +3,10 @@ use super::basefold::{
     BasefoldVerifierParams, Type1Polynomial, Type2Polynomial,
 };
 use super::brakedown::MultilinearBrakedownCommitment;
-use super::brakingbase_helper::{fold_by_msb, len_3_interpolate, point_to_tensor};
+use super::brakingbase_helper::{len_3_interpolate, point_to_tensor};
 use crate::pcs::multilinear::brakingbase_helper::{
-    eq, eq_xy, eval, evaluate_eq, evaluate_poly, partial_evaluate_poly, point_to_tensor_for_commit,
+    eq, eq_xy, eval, evaluate_eq, evaluate_poly, par_fold_by_msb, partial_evaluate_poly,
+    point_to_tensor_for_commit,
 };
 use crate::pcs::multilinear::{basefold, brakedown};
 use crate::pcs::Commitment;
@@ -685,12 +686,6 @@ where
                 )
             },
         );
-        // let h_row_eval = evaluate_poly(&h_row, &random_points2);
-        // let h_col_eval = evaluate_poly(&h_col, &random_points2);
-        // let read_ts_row_eval = evaluate_poly(&read_ts_row, &random_points2);
-        // let read_ts_col_eval = evaluate_poly(&read_ts_col, &random_points2);
-        // let h_erow_eval = evaluate_poly(&h_erow, &random_points2);
-        // let h_ecol_eval = evaluate_poly(&h_ecol, &random_points2);
 
         transcript.write_field_elements(&[
             h_row_eval,
@@ -739,7 +734,6 @@ where
         final_ts_row_col_rp.push(r);
         final_ts_row_col_rp.extend(random_points1);
 
-        //TODO:- Check if clone can be removed
         let mut extended_final_ts_row_col = final_ts_row_col.clone();
 
         //TODO:- Run batch sum check without extending
@@ -772,12 +766,7 @@ where
                 )
             },
         );
-        // let mut eq_p_prime_fsrp = point_to_tensor(1, &p_p_prime_fsrp).1;
-        // let mut eq_p_prime_rp_u = point_to_tensor(1, &p_p_prime_rp_u).1;
-        // let mut eq_p_prime_rp_x0 = point_to_tensor(1, &p_p_prime_rp_x0).1;
-        // let mut eq_schrp = point_to_tensor(1, &second_sum_check_random_points).1;
-        // let mut eq_rp2 = point_to_tensor(1, &random_points2).1;
-        // let mut eq_final_ts_rc_rp = point_to_tensor(1, &final_ts_row_col_rp).1;
+
         println!("time to compute fourier coeffs {:?}", start_time.elapsed());
 
         let vec2 = [
@@ -793,9 +782,11 @@ where
                     eq_p_prime_rp_u[idx],
                     eq_p_prime_rp_x0[idx],
                 ];
-                vec1.iter()
-                    .zip(vec2.iter())
-                    .fold(F::ZERO, |acc, (value1, value2)| acc + (*value1 * *value2))
+                vec1.into_par_iter()
+                    .zip(vec2.into_par_iter())
+                    .fold_with(F::ZERO, |acc, (value1, value2)| acc + (value1 * value2))
+                    .reduce_with(|acc, val| acc + val)
+                    .unwrap()
             })
             .collect::<Vec<F>>();
 
@@ -883,15 +874,6 @@ where
                 )
             },
         );
-        // let h_val_eval = evaluate_poly(&h_val, &batch_sum_check_rp);
-        // let h_erow_eval = evaluate_poly(&h_erow, &batch_sum_check_rp);
-        // let h_ecol_eval = evaluate_poly(&h_ecol, &batch_sum_check_rp);
-        // let h_row_eval = evaluate_poly(&h_row, &batch_sum_check_rp);
-        // let h_col_eval = evaluate_poly(&h_col, &batch_sum_check_rp);
-        // let read_ts_row_eval = evaluate_poly(&read_ts_row, &batch_sum_check_rp);
-        // let read_ts_col_eval = evaluate_poly(&read_ts_col, &batch_sum_check_rp);
-        // let extended_final_ts_row_col_eval =
-        //     evaluate_poly(&extended_final_ts_row_col, &batch_sum_check_rp);
         println!("evaluate poly at batch sum rp {:?}", start_time.elapsed());
 
         transcript
@@ -909,6 +891,7 @@ where
 
         // Calling Basefold batch open
         let mut polys = Vec::<Vec<F>>::with_capacity(9);
+        let start_time = Instant::now();
 
         reverse_index_bits_in_place(&mut p_p_prime);
         polys.push(p_p_prime);
@@ -919,7 +902,6 @@ where
         reverse_index_bits_in_place(&mut h_ecol);
         polys.push(h_ecol);
 
-        // let mut h_val_clone = pp.trusted_commit.bh_evals[0].poly.clone();
         reverse_index_bits_in_place(&mut h_val);
         polys.push(h_val);
 
@@ -938,6 +920,8 @@ where
         reverse_index_bits_in_place(&mut extended_final_ts_row_col);
         polys.push(extended_final_ts_row_col);
 
+        println!("time to reverse index {:?}", start_time.elapsed());
+
         let random_combiners = transcript.squeeze_challenges(polys.len());
 
         batch_sum_check_rp.reverse();
@@ -952,6 +936,7 @@ where
         evals.push(read_ts_row_eval);
         evals.push(read_ts_col_eval);
         evals.push(extended_final_ts_row_col_eval);
+
         let start_time = Instant::now();
 
         basefold_batch_open::<F, H, S>(
@@ -1262,7 +1247,6 @@ where
             &batch_sum_check_random_combiner,
         );
 
-        // let evals = transcript.read_field_elements(9).unwrap();
         let random_combiners = transcript.squeeze_challenges(evals.len());
 
         batch_sum_check_rp.reverse();
@@ -1278,8 +1262,6 @@ where
             &evals,
             transcript,
         )
-
-        //println!("END OF VERIFICATION."); // remove this
 
         //Ok(())
     }
@@ -1417,9 +1399,9 @@ pub fn first_sum_check_prover<F, H, S>(
         let r = transcript.squeeze_challenge();
         first_sum_check_random_points[i] = r;
 
-        mask = fold_by_msb(&mask, r);
-        p_p_prime = fold_by_msb(&p_p_prime, r);
-        h = fold_by_msb(&h, r);
+        mask = par_fold_by_msb(&mask, r);
+        p_p_prime = par_fold_by_msb(&p_p_prime, r);
+        h = par_fold_by_msb(&h, r);
     }
     transcript.write_field_element(&h[0]);
 }
@@ -1480,9 +1462,9 @@ pub fn second_sum_check_prover<F, H, S>(
         let r = transcript.squeeze_challenge();
         second_sum_check_random_points[i] = r;
 
-        h_erow = fold_by_msb(&h_erow, r);
-        h_ecol = fold_by_msb(&h_ecol, r);
-        h_val = fold_by_msb(&h_val, r);
+        h_erow = par_fold_by_msb(&h_erow, r);
+        h_ecol = par_fold_by_msb(&h_ecol, r);
+        h_val = par_fold_by_msb(&h_val, r);
     }
     transcript.write_field_element(&h_val[0]);
     transcript.write_field_element(&h_erow[0]);
@@ -1556,8 +1538,8 @@ pub(crate) fn batch_sum_check_prover<
             .iter_mut()
             .zip(eqs.iter_mut())
             .for_each(|(poly, eq_coeff)| {
-                *eq_coeff = fold_by_msb(eq_coeff, r_i);
-                *poly = fold_by_msb(poly, r_i);
+                *eq_coeff = par_fold_by_msb(eq_coeff, r_i);
+                *poly = par_fold_by_msb(poly, r_i);
             });
     }
     transcript.write_field_element(&eqs[0][0]);
@@ -1674,17 +1656,17 @@ where
 
     // Basefold uses Type 2 representation for encoding. Converting to this representation.
 
-    let mut coeffs_vec = vec![vec![F::ZERO; polys[0].len()]; polys.len()];
-
-    for i in 0..polys.len() {
-        reverse_index_bits_in_place(&mut polys[i]);
-        let mut temp = Type2Polynomial {
-            poly: polys[i].clone(),
-        };
-        coeffs_vec[i] = basefold::interpolate_over_boolean_hypercube_with_copy::<F>(&temp)
-            .0
-            .poly;
-    }
+    // let mut coeffs_vec = vec![vec![F::ZERO; polys[0].len()]; polys.len()];
+    let coeffs_vec: Vec<Vec<F>> = polys
+        .par_iter_mut()
+        .map(|poly| {
+            reverse_index_bits_in_place(poly);
+            let mut temp = Type2Polynomial { poly: poly.clone() };
+            basefold::interpolate_over_boolean_hypercube_with_copy::<F>(&temp)
+                .0
+                .poly
+        })
+        .collect();
 
     let polys_type_2: Vec<Type2Polynomial<F>> = coeffs_vec
         .par_iter()
@@ -1783,22 +1765,7 @@ pub fn basefold_batch_open<F, H, S>(
     assert_eq!(polys.len(), random_combiners.len());
 
     let mut combined_poly = vec![F::ZERO; 1 << num_vars];
-    let num_threads = rayon::current_num_threads().next_power_of_two();
-    let chunk_size = max(1, (1 << num_vars) / num_threads);
-
     let start_time = Instant::now();
-    // combined_poly
-    //     .par_chunks_mut(chunk_size)
-    //     .enumerate()
-    //     .for_each(|(j, combined)| {
-    //         combined.iter_mut().enumerate().for_each(|(k, comb)|{
-    //             for i in 0..polys.len(){
-    //             *comb += random_combiners[i] * polys[i][chunk_size * j + k];
-
-    //             }
-    //         })
-    //     });
-
     combined_poly
         .par_iter_mut()
         .enumerate()
@@ -1830,27 +1797,16 @@ pub fn basefold_batch_open<F, H, S>(
 
     let start_time = Instant::now();
     let mut combined_codeword_0 = vec![F::ZERO; comm.codeword.poly.len()];
-    let num_threads = rayon::current_num_threads().next_power_of_two();
-    let chunk_size = max(1, comm.codeword.poly.len() / num_threads);
-
-    //  combined_codeword_0
-    //     .par_chunks_mut(chunk_size)
-    //     .enumerate()
-    //     .for_each(|(j, combined)| {
-    //         combined.iter_mut().enumerate().for_each(|(k, comb)|{
-    //             for i in 0..polys.len(){
-    //             *comb += random_combiners[i] * codewords[i][chunk_size * j + k];
-
-    //             }
-    //         })
-    //     });
     combined_codeword_0
         .par_iter_mut()
         .enumerate()
         .for_each(|(j, combined)| {
-            for i in 0..codewords.len() {
-                *combined += random_combiners[i] * codewords[i][j];
-            }
+            *combined = (0..codewords.len())
+                .into_par_iter()
+                .map(|i| random_combiners[i] * codewords[i][j])
+                .fold_with(F::ZERO, |acc, val| acc + val)
+                .reduce_with(|acc, val| acc + val)
+                .unwrap()
         });
 
     let mut combined_codeword = Type1Polynomial {
@@ -1869,22 +1825,14 @@ pub fn basefold_batch_open<F, H, S>(
         .for_each(|(i, eq_element)| {
             *eq_element = eq(i, &point);
         });
-    // let mut eq_vec = vec![F::ZERO; 1 << num_vars];
-    //   eq_vec
-    //         .par_iter_mut()
-    //         .enumerate()
-    //         .for_each(|(i, eq_element)| {
-    //             *eq_element = eq(i, &point);
-    //         });
+
     println!("time to compute eq vec {:?}", start_time.elapsed());
     assert_eq!(eq_vec.len(), polys[0].len());
 
     let mut codewords = Vec::<Type1Polynomial<F>>::with_capacity(num_rounds);
     let mut merkle_trees = Vec::<Vec<Vec<Output<H>>>>::with_capacity(num_rounds);
 
-    let f_2 = (F::ONE + F::ONE);
-    let f_2_inv = f_2.invert().unwrap();
-    let f_3 = f_2 + F::ONE;
+    let f_2_inv = F::from(2 as u64).invert().unwrap();
 
     let mut r_point = Vec::<F>::new();
 
@@ -1898,16 +1846,17 @@ pub fn basefold_batch_open<F, H, S>(
             .map(|i| {
                 let a_0 = eq_vec[i] * combined_poly[i];
                 let a_1 = eq_vec[offset + i] * combined_poly[offset + i];
-                let a_2 = (f_2 * eq_vec[offset + i] - eq_vec[i])
-                    * (f_2 * combined_poly[offset + i] - combined_poly[i]);
+                let a_2 = (eq_vec[offset + i].double() - eq_vec[i])
+                    * (combined_poly[offset + i].double() - combined_poly[i]);
                 (a_0, a_1, a_2)
             })
             .reduce_with(|(acc0, acc1, acc2), (a_0, a_1, a_2)| (acc0 + a_0, acc1 + a_1, acc2 + a_2))
             .unwrap();
-
+        let a_0_f2_inv = a_0 * f_2_inv;
+        let a_2_f_2_inv = a_2 * f_2_inv;
         let polynomial_current_round = [
-            a_0 * f_2_inv - a_1 + a_2 * f_2_inv,
-            -(f_3 * a_0 * f_2_inv) + f_2 * a_1 - a_2 * f_2_inv,
+            a_0_f2_inv - a_1 + a_2_f_2_inv,
+            -(F::from(3 as u64) * a_0_f2_inv) + a_1.double() - a_2_f_2_inv,
             a_0,
         ]
         .to_vec();
@@ -1917,8 +1866,8 @@ pub fn basefold_batch_open<F, H, S>(
         let r = transcript.squeeze_challenge();
         r_point.push(r);
 
-        eq_vec = fold_by_msb(&eq_vec, r);
-        combined_poly = fold_by_msb(&combined_poly, r);
+        eq_vec = par_fold_by_msb(&eq_vec, r);
+        combined_poly = par_fold_by_msb(&combined_poly, r);
 
         codewords.push(basefold::basefold_one_round_by_interpolation_weights::<F>(
             &pp.table_w_weights,
@@ -1956,22 +1905,10 @@ pub fn basefold_batch_open<F, H, S>(
         transcript.write_field_element(&comm.codeword.poly[2 * query + 1]);
         write_merkle_path::<F, H>(2 * query, &comm.codeword_tree, transcript);
 
-        // TEST CODE
-        let mut hasher_1 = H::new();
-        let mut hasher_2 = H::new();
-
         batch_comm_1.codewords.iter().for_each(|codeword| {
             transcript.write_field_element(&codeword.poly[2 * query]);
             transcript.write_field_element(&codeword.poly[2 * query + 1]);
-            hasher_1.update_field_element(&codeword.poly[2 * query]);
-            hasher_2.update_field_element(&codeword.poly[2 * query + 1]);
         });
-        let hash_1 = hasher_1.finalize_fixed();
-        let hash_2 = hasher_2.finalize_fixed();
-        let mut hasher_3 = H::new();
-        hasher_3.update(&hash_1);
-        hasher_3.update(&hash_2);
-        let hash_3 = hasher_3.finalize_fixed();
 
         write_merkle_path::<F, H>(2 * query, &batch_comm_1.codeword_tree, transcript);
 
