@@ -15,20 +15,13 @@ pub fn compute_fourier_bases<F: PrimeField>(r: Vec<F>) -> Vec<F> {
         //initialize fc_eq of double size with zero
         fc_eq = vec![F::ZERO; temp.len() * 2];
 
-        if k < 8 {
-            for iter in 0..temp.len() {
-                fc_eq[2 * iter + 1] = temp[iter] * r[k];
-                fc_eq[2 * iter] = temp[iter] - fc_eq[2 * iter + 1];
-            }
-        } else {
-            fc_eq
-                .par_chunks_mut(2)
-                .zip(temp)
-                .for_each(|(fc_eq_pair, temp)| {
-                    fc_eq_pair[1] = temp * (r[k as usize]);
-                    fc_eq_pair[0] = temp - fc_eq_pair[1];
-                })
-        }
+        fc_eq
+            .par_chunks_mut(2)
+            .zip(temp)
+            .for_each(|(fc_eq_pair, temp)| {
+                fc_eq_pair[1] = temp * (r[k as usize]);
+                fc_eq_pair[0] = temp - fc_eq_pair[1];
+            })
     }
     fc_eq
 }

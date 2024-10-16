@@ -1801,12 +1801,9 @@ pub fn basefold_batch_open<F, H, S>(
         .par_iter_mut()
         .enumerate()
         .for_each(|(j, combined)| {
-            *combined = (0..codewords.len())
-                .into_par_iter()
-                .map(|i| random_combiners[i] * codewords[i][j])
-                .fold_with(F::ZERO, |acc, val| acc + val)
-                .reduce_with(|acc, val| acc + val)
-                .unwrap()
+            for i in 0..codewords.len() {
+                *combined += random_combiners[i] * codewords[i][j]
+            }
         });
 
     let mut combined_codeword = Type1Polynomial {

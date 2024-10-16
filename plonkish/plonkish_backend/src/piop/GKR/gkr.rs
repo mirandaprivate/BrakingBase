@@ -155,8 +155,13 @@ pub fn gkr_prover<F: PrimeField + Serialize + DeserializeOwned, H: Hash, S: Brak
                     })
                     .fold_with(
                         (F::ZERO, F::ZERO, F::ZERO, F::ZERO),
-                        |(acc0, acc1, acc2, acc3),val| {
-                            (acc0 + val.0.0, acc1 + val.0.1, acc2 + val.1.0, acc3 + val.1.1)
+                        |(acc0, acc1, acc2, acc3), val| {
+                            (
+                                acc0 + val.0 .0,
+                                acc1 + val.0 .1,
+                                acc2 + val.1 .0,
+                                acc3 + val.1 .1,
+                            )
                         },
                     )
                     .reduce_with(|(acc0, acc1, acc2, acc3), (val0, val1, val2, val3)| {
@@ -191,11 +196,8 @@ pub fn gkr_prover<F: PrimeField + Serialize + DeserializeOwned, H: Hash, S: Brak
             //Now we fix the leading variable of the the multilinear polynomials lagrange_bases_eval, child_left and child_right to get multilinear polynomials
             //in one less variable for the next sum check round
             //Since lagrange_bases_eval is a common computation accross circuits, we fold it in parallel separately.
-            if i < 8 {
-                lagrange_bases_eval = fold_by_msb(&lagrange_bases_eval, random_point)
-            } else {
-                lagrange_bases_eval = par_fold_by_msb(&lagrange_bases_eval, random_point)
-            }
+
+            lagrange_bases_eval = par_fold_by_msb(&lagrange_bases_eval, random_point);
 
             //We fix the current leading variable in the sum check to the current random point of the protocol for the extension for the
             //child_left and child_right MLEs
