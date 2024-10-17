@@ -360,7 +360,7 @@ mod test {
             + TranscriptWrite<Pcs::CommitmentChunk, F>
             + InMemoryTranscript<Param = ()>,
     {
-        for num_vars in 20..21{
+        for num_vars in 20..21 {
             println!("k {:?}", num_vars);
             // Setup
             let (pp, vp) = {
@@ -394,6 +394,7 @@ mod test {
             };
             // Verify
             println!("Proof size = {} KB", proof.len() / 1024);
+            let start_time = Instant::now();
             let result = {
                 let mut transcript = T::from_proof((), proof.as_slice());
                 Pcs::verify(
@@ -404,6 +405,7 @@ mod test {
                     &mut transcript,
                 )
             };
+            println!("Verifier time {:?}", start_time.elapsed());
             assert_eq!(result, Ok(()));
         }
     }

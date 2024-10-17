@@ -1,7 +1,5 @@
 use super::helper::{compute_fourier_bases, len_4_interpolate};
-use crate::pcs::multilinear::brakingbase_helper::{
-    eval, evaluate_eq, fold_by_msb, par_fold_by_msb,
-};
+use crate::pcs::multilinear::brakingbase_helper::{eval, evaluate_eq, par_fold_by_msb};
 use crate::util::hash::Hash;
 use crate::util::transcript::FieldTranscriptRead;
 use crate::{
@@ -16,7 +14,7 @@ use rayon::iter::{
     IndexedParallelIterator, IntoParallelIterator, IntoParallelRefMutIterator, ParallelIterator,
 };
 use rayon::slice::ParallelSliceMut;
-use serde::de::DeserializeOwned;
+use serde::de::{value, DeserializeOwned};
 use serde::Serialize;
 
 #[derive(Clone)]
@@ -251,14 +249,17 @@ pub fn gkr_verifier<F: PrimeField + Serialize + DeserializeOwned>(
     //Verifier obtains the random coefficients the prover uses.
     let random_coeff = transcript.squeeze_challenges(n_circuits);
 
-    let mut binding_per_layer = F::ZERO;
-
     //The value for the claim of the first round of the protocol.
-    for c in 0..n_circuits {
-        binding_per_layer += random_coeff[c]
-            * ((F::ONE - initial_random_point[0]) * final_evaluations[2 * c]
-                + initial_random_point[0] * final_evaluations[2 * c + 1])
-    }
+    let mut binding_per_layer = (0..n_circuits)
+        .into_par_iter()
+        .map(|c| {
+            random_coeff[c]
+                * ((F::ONE - initial_random_point[0]) * final_evaluations[2 * c]
+                    + initial_random_point[0] * final_evaluations[2 * c + 1])
+        })
+        .fold_with(F::ZERO, |acc, val| acc + val)
+        .reduce_with(|acc, val| acc + val)
+        .unwrap();
 
     for d in 0..depth - 1 {
         let rounds = d + 1;
@@ -279,10 +280,12 @@ pub fn gkr_verifier<F: PrimeField + Serialize + DeserializeOwned>(
         }
 
         let claimed_values = transcript.read_field_elements(n_circuits * 2).unwrap();
-        let mut temp = F::ZERO;
-        for c in 0..claimed_values.len() / 2 {
-            temp += random_coeff[c] * (claimed_values[2 * c] * claimed_values[2 * c + 1])
-        }
+        let temp = (0..claimed_values.len() / 2)
+            .into_par_iter()
+            .map(|c| random_coeff[c] * (claimed_values[2 * c] * claimed_values[2 * c + 1]))
+            .fold_with(F::ZERO, |acc, val| acc + val)
+            .reduce_with(|acc, val| acc + val)
+            .unwrap();
 
         let r = transcript.squeeze_challenge();
         sum_check_random_points[0] = r;
@@ -300,11 +303,16 @@ pub fn gkr_verifier<F: PrimeField + Serialize + DeserializeOwned>(
         //W(x_1, x_2, ..., x_d, 0),W(x_1,x_2,...,x_d,1) respectively.
         //For any multilinear polynomial W in variables, x_1, ..., x_d+1.
         //W(x_1, ..., x_d+1) = (1-x_1).W(x_1, ... , x_d,0) + x_1.W(x_1,...,x_d,1)
-        let mut next_layer_claimed_values = F::ZERO;
-        for c in 0..claimed_values.len() / 2 {
-            next_layer_claimed_values += random_coeff[c]
-                * ((F::ONE - r) * claimed_values[2 * c] + r * claimed_values[2 * c + 1])
-        }
+        let next_layer_claimed_values = (0..claimed_values.len() / 2)
+            .into_par_iter()
+            .map(|c| {
+                random_coeff[c]
+                    * (claimed_values[2 * c]
+                        + r * (claimed_values[2 * c + 1] - claimed_values[2 * c]))
+            })
+            .fold_with(F::ZERO, |acc, val| acc + val)
+            .reduce_with(|acc, val| acc + val)
+            .unwrap();
         binding_per_layer = next_layer_claimed_values;
     }
     initial_random_point.reverse();

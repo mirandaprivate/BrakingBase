@@ -439,7 +439,6 @@ where
         }
 
         let now = Instant::now();
-
         let p_p_prime_commit = Basefold::<F, H, S>::commit(
             &pp.basefold,
             &MultilinearPolynomial::new(reverse_index_bits(&p_p_prime)),
@@ -782,9 +781,9 @@ where
                     eq_p_prime_rp_u[idx],
                     eq_p_prime_rp_x0[idx],
                 ];
-                vec1.into_par_iter()
-                    .zip(vec2.into_par_iter())
-                    .fold_with(F::ZERO, |acc, (value1, value2)| acc + (value1 * value2))
+                vec1.par_iter()
+                    .zip(vec2.par_iter())
+                    .fold_with(F::ZERO, |acc, (value1, value2)| acc + (*value1 * *value2))
                     .reduce_with(|acc, val| acc + val)
                     .unwrap()
             })
@@ -1016,7 +1015,6 @@ where
                 for elem in col.iter() {
                     hasher.update_field_element(elem);
                 }
-
                 hasher.finalize_fixed_reset()
             };
             cols.extend(col);
@@ -1036,7 +1034,7 @@ where
                 ));
             }
         }
-        // println!("Verifier HERE 0");
+
         let mut u = transcript.squeeze_challenges(row_len.ilog2().try_into().unwrap());
         let p_prime_at_u = transcript.read_field_element()?;
         let mut sum_check_val = F::ZERO;
@@ -1056,17 +1054,16 @@ where
         for i in 0..sum_check_rounds as usize {
             let mut a = transcript.read_field_elements(3).unwrap();
 
-            if sum_check_val != (F::ONE + F::ONE) * a[2] + a[1] + a[0] {
+            if sum_check_val != F::from(2 as u64) * a[2] + a[1] + a[0] {
                 println!("Error in round {i}");
                 return Err(Error::InvalidPcsOpen("Sum check failed".to_string()));
             }
             let r = transcript.squeeze_challenge();
             first_sum_check_random_points[i] = r;
-            sum_check_val = a[2] + a[1] * r + a[0] * r * r;
+            sum_check_val = a[2] + (a[1] + a[0] * r) * r;
         }
         let witness_evals = transcript.read_field_elements(3).unwrap();
         let h_eval = witness_evals[0];
-        // println!("h_eval on verifier side = {:?}", h_eval);
         let p_eval = witness_evals[1];
         let p_prime_eval = witness_evals[2];
         let r = first_sum_check_random_points[0];
@@ -1075,22 +1072,31 @@ where
         /*evaluating mask at first_sum_check_random_points */
         let mut mask_eval = F::ZERO;
 
-        for i in 0..vp.num_brakedown_queries {
-            let val = col_idx[i] as u32;
-            let mut prod_term = challenges[i];
-            for j in 0..first_sum_check_random_points.len() {
-                if ((val << (31 - j)) >> 31) == 1 {
-                    prod_term *=
-                        first_sum_check_random_points[first_sum_check_random_points.len() - 1 - j];
-                } else {
-                    prod_term *= F::ONE
-                        - first_sum_check_random_points
-                            [first_sum_check_random_points.len() - 1 - j];
-                }
-            }
-
-            mask_eval += prod_term;
-        }
+        let mask_eval = (0..vp.num_brakedown_queries)
+            .into_par_iter()
+            .map(|i| {
+                let val = col_idx[i] as u32;
+                let mut prod_term = challenges[i];
+                (0..first_sum_check_random_points.len())
+                    .into_par_iter()
+                    .map(|j| {
+                        if ((val << (31 - j)) >> 31) == 1 {
+                            first_sum_check_random_points
+                                [first_sum_check_random_points.len() - 1 - j]
+                        } else {
+                            F::ONE
+                                - first_sum_check_random_points
+                                    [first_sum_check_random_points.len() - 1 - j]
+                        }
+                    })
+                    .fold_with(F::ONE, |acc, val| acc * val)
+                    .reduce_with(|acc, val| acc * val)
+                    .unwrap()
+                    * prod_term
+            })
+            .fold_with(F::ZERO, |acc, val| acc + val)
+            .reduce_with(|acc, val| acc + val)
+            .unwrap();
 
         let final_value =
             (random_combiners[0] * mask_eval + random_combiners[1] * h_eval) * p_p_prime_eval;
@@ -1101,7 +1107,6 @@ where
 
         /*END OF FIRST SUM_CHECK VERIFICATION */
         println!("First sum check verifier done.");
-        //transcript.write_field_elements([h_eval, p_eval, p_prime_eval].iter());
 
         let h_erow_ecol_commit = transcript.read_commitment().unwrap();
 
@@ -1236,9 +1241,11 @@ where
         // println!(
 
         let claimed_eval = initial_claimed_evals
-            .iter()
-            .zip(batch_sum_check_random_combiner.iter())
-            .fold(F::ZERO, |acc, (val1, val2)| acc + (*val1 * *val2));
+            .par_iter()
+            .zip(batch_sum_check_random_combiner.par_iter())
+            .fold_with(F::ZERO, |acc, (val1, val2)| acc + (*val1 * *val2))
+            .reduce_with(|acc, val| acc + val)
+            .unwrap();
 
         let (evals, mut batch_sum_check_rp) = batch_sum_check_verifier::<F>(
             &rx,
@@ -1612,9 +1619,11 @@ pub fn batch_sum_check_verifier<F: PrimeField + Serialize + DeserializeOwned>(
     combined_eq_evaluations.extend(&eq_evaluations);
 
     let expected_result = evaluations
-        .into_iter()
-        .zip(combined_eq_evaluations.into_iter())
-        .fold(F::ZERO, |acc, (eval, eq)| acc + (eval * eq));
+        .par_iter()
+        .zip(combined_eq_evaluations.par_iter())
+        .fold_with(F::ZERO, |acc, (eval, eq)| acc + (*eval * *eq))
+        .reduce_with(|acc, val| acc + val)
+        .unwrap();
 
     assert_eq!(
         actual_result, expected_result,
@@ -1953,28 +1962,29 @@ where
     let num_rounds = num_vars;
     let table_w_weights = &vp.table_w_weights;
 
-    let f_2 = F::ONE + F::ONE;
-    let f_2_inv = f_2.invert().unwrap();
+    let f_2_inv = F::from(2 as u64).invert().unwrap();
 
     let mut eval = evals
-        .iter()
-        .zip(random_combiners)
-        .fold(F::ZERO, |acc, (e, random_combiner)| {
+        .par_iter()
+        .zip(random_combiners.par_iter())
+        .fold_with(F::ZERO, |acc, (e, random_combiner)| {
             acc + *random_combiner * *e
-        });
+        })
+        .reduce_with(|acc, val| acc + val)
+        .unwrap();
 
     // Commit phase verification
     let mut challenges = Vec::<F>::with_capacity(num_rounds);
     let mut oracles = Vec::<Output<H>>::with_capacity(num_rounds);
     for iter in 0..num_rounds {
         let a = transcript.read_field_elements(3).unwrap();
-        if eval != (F::ONE + F::ONE) * a[2] + a[1] + a[0] {
+        if eval != F::from(2 as u64) * a[2] + a[1] + a[0] {
             println!("Error in round {iter} of sum-check");
             println!("Prover poly in round {iter} is {:?}", a);
             return Err(Error::InvalidPcsOpen("Sum check failed".to_string()));
         } else {
             let r = transcript.squeeze_challenge();
-            eval = a[2] + a[1] * r + a[0] * r * r;
+            eval = a[2] + (a[1] + a[0] * r) * r;
             challenges.push(r);
             let temp = transcript.read_commitment().unwrap();
             oracles.push(temp);
@@ -2100,7 +2110,6 @@ where
         }
 
         query_idx = queries[i];
-
         for iter in 1..elems.len() {
             let ri0 = reverse_bits(2 * query_idx, vp.num_vars + vp.log_rate - iter + 1);
             let ri1 = reverse_bits(2 * query_idx + 1, vp.num_vars + vp.log_rate - iter + 1);
@@ -2120,12 +2129,10 @@ where
             );
             let x1 = -x0;
 
-            let mut c1 = elems[iter - 1].0 + elems[iter - 1].1;
-            c1 = c1 * f_2_inv;
-            let mut c2 = elems[iter - 1].0 - elems[iter - 1].1;
-            c2 = c2 * f_2_inv;
-            c2 = c2 * x0.invert().unwrap();
-            let mut c = c1 + challenges[iter - 1] * c2;
+            let c1 = (elems[iter - 1].0 + elems[iter - 1].1) * f_2_inv;
+            let c2 = (elems[iter - 1].0 - elems[iter - 1].1) * f_2_inv * x0.invert().unwrap();
+
+            let c = c1 + challenges[iter - 1] * c2;
             if query_idx % 2 == 0 {
                 if c != elems[iter].0 {
                     println!("ORACLES INCONSISTENT!");
@@ -2206,16 +2213,18 @@ fn authenticate_merkle_path<F: PrimeField, H: Hash>(
         idx >>= 1;
     }
 
-    for i in 0..merkle_path[path_len - 1].len() {
-        let h_1 = merkle_path[path_len - 1][i];
-        let h_2 = root[i];
-        let h_3 = hash[i];
-        assert_eq!(h_1, h_2);
-        assert_eq!(h_2, h_3);
-        if h_1 != h_2 {
-            println!("ERROR in Merkle path opening!");
-        }
-    }
+    (0..merkle_path[path_len - 1].len())
+        .into_par_iter()
+        .for_each(|i| {
+            let h_1 = merkle_path[path_len - 1][i];
+            let h_2 = root[i];
+            let h_3 = hash[i];
+            assert_eq!(h_1, h_2);
+            assert_eq!(h_2, h_3);
+            if h_1 != h_2 {
+                println!("ERROR in Merkle path opening!");
+            }
+        });
     Ok(())
 }
 
@@ -2245,13 +2254,15 @@ fn authenticate_merkle_path_hash<F: PrimeField, H: Hash>(
         }
         idx >>= 1;
     }
-    for i in 0..merkle_path[path_len - 1].len() {
-        let h_1 = merkle_path[path_len - 1][i];
-        let h_2 = root[i];
-        let h_3 = hash[i];
-        assert_eq!(h_1, h_2);
-        assert_eq!(h_2, h_3);
-    }
+    (0..merkle_path[path_len - 1].len())
+        .into_par_iter()
+        .for_each(|i| {
+            let h_1 = merkle_path[path_len - 1][i];
+            let h_2 = root[i];
+            let h_3 = hash[i];
+            assert_eq!(h_1, h_2);
+            assert_eq!(h_2, h_3);
+        });
     Ok(())
 }
 
