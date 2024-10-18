@@ -2038,7 +2038,7 @@ mod test {
     }
 
     #[test]
-    fn basefold_commit_open_verify() {
+    fn commit_open_verify() {
         run_commit_open_verify::<_, Pcs, Blake2sTranscript<_>>();
     }
 
