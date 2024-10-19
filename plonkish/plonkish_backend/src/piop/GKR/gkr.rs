@@ -1,7 +1,5 @@
 use super::helper::{compute_fourier_bases, len_4_interpolate};
-use crate::pcs::multilinear::brakingbase_helper::{
-    eval, evaluate_eq, fold_by_msb, par_fold_by_msb,
-};
+use crate::pcs::multilinear::brakingbase_helper::{eval, evaluate_eq, par_fold_by_msb};
 use crate::util::hash::Hash;
 use crate::util::transcript::FieldTranscriptRead;
 use crate::{
@@ -244,7 +242,7 @@ pub fn gkr_verifier<F: PrimeField + Serialize + DeserializeOwned>(
     depth: usize,
     transcript: &mut impl FieldTranscriptRead<F>,
     n_circuits: usize,
-) -> (F, Vec<F>, Vec<F>) {
+) -> (F, Vec<F>, Vec<F>, Vec<F>) {
     let final_evaluations = transcript.read_field_elements(n_circuits * 2).unwrap();
     let mut initial_random_point = vec![transcript.squeeze_challenge()];
 
@@ -308,5 +306,10 @@ pub fn gkr_verifier<F: PrimeField + Serialize + DeserializeOwned>(
         binding_per_layer = next_layer_claimed_values;
     }
     initial_random_point.reverse();
-    (binding_per_layer, random_coeff, initial_random_point)
+    (
+        binding_per_layer,
+        random_coeff,
+        initial_random_point,
+        final_evaluations,
+    )
 }

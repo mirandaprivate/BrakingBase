@@ -1004,22 +1004,26 @@ where
         let depth = codeword_len.next_power_of_two().ilog2() as usize;
         let mut col_idx = vec![0 as usize; vp.num_brakedown_queries];
         let mut cols = Vec::<F>::new();
-
+        let start_time = Instant::now();
+        let mut paths = Vec::new();
         for i in 0..vp.num_brakedown_queries {
             col_idx[i] = squeeze_challenge_idx(transcript, codeword_len);
             let col = transcript.read_field_elements(vp.brakedown_num_rows)?;
             let path = transcript.read_commitments(depth)?;
-
+            cols.extend(col);
+            paths.push(path);
+        }
+        (0..vp.num_brakedown_queries).into_par_iter().for_each(|i| {
+            let col = cols[i * vp.brakedown_num_rows..(i + 1) * vp.brakedown_num_rows].to_vec();
+            let path = &paths[i];
             // verify merkle tree opening
             let mut hasher = H::new();
             let mut output = {
                 for elem in col.iter() {
                     hasher.update_field_element(elem);
                 }
-
                 hasher.finalize_fixed_reset()
             };
-            cols.extend(col);
             for (idx, neighbor) in path.iter().enumerate() {
                 if ((col_idx[i] >> idx) & 1) == 0 {
                     hasher.update(&output);
@@ -1031,66 +1035,85 @@ where
                 output = hasher.finalize_fixed_reset();
             }
             if &output != &comm.root {
-                return Err(Error::InvalidPcsOpen(
-                    "Invalid merkle tree opening".to_string(),
-                ));
+                panic!("Invalid merkle tree opening");
             }
-        }
-        // println!("Verifier HERE 0");
+        });
+        drop(paths);
+        println!("time 1 {:?}", start_time.elapsed());
+
+        let start_time = Instant::now();
         let mut u = transcript.squeeze_challenges(row_len.ilog2().try_into().unwrap());
         let p_prime_at_u = transcript.read_field_element()?;
-        let mut sum_check_val = F::ZERO;
+        // let mut sum_check_val = F::ZERO;
         let challenges = transcript.squeeze_challenges(vp.num_brakedown_queries);
         let random_combiners = transcript.squeeze_challenges(2);
-        for j in 0..vp.num_brakedown_queries {
-            let mut sum_check_val_i = F::ZERO;
-            for i in 0..vp.brakedown_num_rows {
-                sum_check_val_i += x_0[i] * cols[j * vp.brakedown_num_rows + i];
-            }
-            sum_check_val += sum_check_val_i * challenges[j];
-        }
-        sum_check_val *= random_combiners[0];
-        sum_check_val += p_prime_at_u * random_combiners[1];
+        let mut sum_check_val = (0..vp.num_brakedown_queries)
+            .into_par_iter()
+            .fold(
+                || F::ZERO,
+                |acc, j| {
+                    let sum_check_val_i = (0..vp.brakedown_num_rows)
+                        .into_iter()
+                        .fold(F::ZERO, |acc, i| {
+                            acc + x_0[i] * cols[j * vp.brakedown_num_rows + i]
+                        });
+                    acc + sum_check_val_i * challenges[j]
+                },
+            )
+            .reduce_with(|acc, val| acc + val)
+            .unwrap()
+            * random_combiners[0]
+            + p_prime_at_u * random_combiners[1];
+        println!("time 2 {:?}", start_time.elapsed());
+
+        let start_time = Instant::now();
         let sum_check_rounds = (2 * row_len).next_power_of_two().ilog2();
         let mut first_sum_check_random_points = vec![F::ZERO; sum_check_rounds as usize];
         for i in 0..sum_check_rounds as usize {
             let mut a = transcript.read_field_elements(3).unwrap();
 
-            if sum_check_val != (F::ONE + F::ONE) * a[2] + a[1] + a[0] {
-                println!("Error in round {i}");
+            if sum_check_val != a[2].double() + a[1] + a[0] {
                 return Err(Error::InvalidPcsOpen("Sum check failed".to_string()));
             }
             let r = transcript.squeeze_challenge();
             first_sum_check_random_points[i] = r;
-            sum_check_val = a[2] + a[1] * r + a[0] * r * r;
+            sum_check_val = a[2] + (a[1] + a[0] * r) * r;
         }
+        println!("time 3 {:?}", start_time.elapsed());
+
+        let start_time = Instant::now();
         let witness_evals = transcript.read_field_elements(3).unwrap();
         let h_eval = witness_evals[0];
-        // println!("h_eval on verifier side = {:?}", h_eval);
         let p_eval = witness_evals[1];
         let p_prime_eval = witness_evals[2];
         let r = first_sum_check_random_points[0];
         let p_p_prime_eval = (F::ONE - r) * p_eval + r * p_prime_eval;
 
         /*evaluating mask at first_sum_check_random_points */
-        let mut mask_eval = F::ZERO;
 
-        for i in 0..vp.num_brakedown_queries {
-            let val = col_idx[i] as u32;
-            let mut prod_term = challenges[i];
-            for j in 0..first_sum_check_random_points.len() {
-                if ((val << (31 - j)) >> 31) == 1 {
-                    prod_term *=
-                        first_sum_check_random_points[first_sum_check_random_points.len() - 1 - j];
-                } else {
-                    prod_term *= F::ONE
-                        - first_sum_check_random_points
-                            [first_sum_check_random_points.len() - 1 - j];
-                }
-            }
-
-            mask_eval += prod_term;
-        }
+        println!("vp.num_brakedown_queries {:?}", vp.num_brakedown_queries);
+        let mask_eval = (0..vp.num_brakedown_queries)
+            .into_par_iter()
+            .fold(
+                || F::ZERO,
+                |acc, i| {
+                    let val = col_idx[i] as u32;
+                    let mut prod_term = challenges[i];
+                    for j in 0..first_sum_check_random_points.len() {
+                        if ((val << (31 - j)) >> 31) == 1 {
+                            prod_term *= first_sum_check_random_points
+                                [first_sum_check_random_points.len() - 1 - j];
+                        } else {
+                            prod_term *= F::ONE
+                                - first_sum_check_random_points
+                                    [first_sum_check_random_points.len() - 1 - j];
+                        }
+                    }
+                    acc + prod_term
+                },
+            )
+            .reduce_with(|acc, val| acc + val)
+            .unwrap();
 
         let final_value =
             (random_combiners[0] * mask_eval + random_combiners[1] * h_eval) * p_p_prime_eval;
@@ -1098,11 +1121,11 @@ where
             println!("Error in final check of first sum-check");
             return Err(Error::InvalidPcsOpen("Sum check failed".to_string()));
         }
+        println!("time 4 {:?}", start_time.elapsed());
 
-        /*END OF FIRST SUM_CHECK VERIFICATION */
-        println!("First sum check verifier done.");
         //transcript.write_field_elements([h_eval, p_eval, p_prime_eval].iter());
 
+        let start_time = Instant::now();
         let h_erow_ecol_commit = transcript.read_commitment().unwrap();
 
         /*SECOND SUM_CHECK VERIFICATION */
@@ -1112,7 +1135,7 @@ where
         let mut second_sum_check_random_points = vec![F::ZERO; sum_check_rounds as usize];
         for i in 0..sum_check_rounds as usize {
             let mut a = transcript.read_field_elements(4).unwrap();
-            if sum_check_val != (F::from(2 as u64)) * a[3] + a[2] + a[1] + a[0] {
+            if sum_check_val != a[3].double() + a[2] + a[1] + a[0] {
                 println!("Error in round {i}");
                 return Err(Error::InvalidPcsOpen("Second Sum check failed".to_string()));
             }
@@ -1129,15 +1152,15 @@ where
             println!("Error in final check of second sum-check");
             return Err(Error::InvalidPcsOpen("Sum check failed".to_string()));
         }
-        println!("2-nd sum check verifier done.");
-        /*END OF SECOND SUM_CHECK VERIFICATION */
+        println!("time 5 {:?}", start_time.elapsed());
 
         let gamma_tau = transcript.squeeze_challenges(2);
 
         let mut padded_u = [F::ZERO].to_vec();
         padded_u.extend(&u);
+        let start_time = Instant::now();
 
-        let (expected_eval, combiners, random_points1) =
+        let (expected_eval, combiners, random_points1, output_layer_eval1) =
             gkr_verifier::<F>((2 * row_len).ilog2() as usize, transcript, 4);
         let final_ts_row_eval = transcript.read_field_element().unwrap();
         let final_ts_col_eval = transcript.read_field_element().unwrap();
@@ -1152,9 +1175,32 @@ where
             final_ts_row_eval,
             final_ts_col_eval,
         );
-        let (expected_eval, combiners, random_points2) =
+        let (expected_eval, combiners, random_points2, output_layer_eval2) =
             gkr_verifier::<F>(vp.basefold_poly_size.ilog2() as usize, transcript, 4);
 
+        assert_eq!(
+            output_layer_eval1[0]
+                * output_layer_eval1[1]
+                * output_layer_eval2[0]
+                * output_layer_eval2[1],
+            output_layer_eval1[2]
+                * output_layer_eval1[3]
+                * output_layer_eval2[2]
+                * output_layer_eval2[3],
+            "output layer check failed for row"
+        );
+
+        assert_eq!(
+            output_layer_eval1[4]
+                * output_layer_eval1[5]
+                * output_layer_eval2[4]
+                * output_layer_eval2[5],
+            output_layer_eval1[6]
+                * output_layer_eval1[7]
+                * output_layer_eval2[6]
+                * output_layer_eval2[7],
+            "output layer check failed for col"
+        );
         let h_row_eval_rp2 = transcript.read_field_element().unwrap();
         let h_col_eval_rp2 = transcript.read_field_element().unwrap();
         let read_ts_row_eval_rp2 = transcript.read_field_element().unwrap();
@@ -1177,6 +1223,8 @@ where
             4,
             &input_layer_evaluations,
         );
+        println!("time 6 {:?}", start_time.elapsed());
+        //TODO:- Add output layer check of gkr
 
         //Extended random points for p+p' corresponding to first_sum_check_random_points;
         let mut p_p_prime_fsrp = vec![
@@ -1233,25 +1281,26 @@ where
         initial_claimed_evals.push(final_ts_row_col_eval);
 
         let batch_sum_check_random_combiner = transcript.squeeze_challenges(13);
-        // println!(
 
         let claimed_eval = initial_claimed_evals
             .iter()
             .zip(batch_sum_check_random_combiner.iter())
             .fold(F::ZERO, |acc, (val1, val2)| acc + (*val1 * *val2));
-
+        let start_time = Instant::now();
         let (evals, mut batch_sum_check_rp) = batch_sum_check_verifier::<F>(
             &rx,
             claimed_eval,
             transcript,
             &batch_sum_check_random_combiner,
         );
+        println!("time 7 {:?}", start_time.elapsed());
 
         let random_combiners = transcript.squeeze_challenges(evals.len());
 
         batch_sum_check_rp.reverse();
 
         // return this
+        let start_time = Instant::now();
         basefold_batch_verify::<F, H, S>(
             &vp.basefold,
             &random_combiners,
@@ -1261,9 +1310,10 @@ where
             &vp.trusted_commit,
             &evals,
             transcript,
-        )
+        );
+        println!("time 7 {:?}", start_time.elapsed());
 
-        //Ok(())
+        Ok(())
     }
 
     fn batch_verify<'a>(
@@ -1758,7 +1808,6 @@ pub fn basefold_batch_open<F, H, S>(
     H: Hash,
     S: BrakingbaseSpec,
 {
-    let a = (F::ONE + F::ONE).invert().unwrap();
     let num_vars = pp.num_vars;
     let num_rounds = num_vars;
 
@@ -1950,11 +1999,9 @@ where
 {
     let num_vars = vp.num_vars;
     let num_rounds = num_vars;
-    let num_rounds = num_vars;
     let table_w_weights = &vp.table_w_weights;
 
-    let f_2 = F::ONE + F::ONE;
-    let f_2_inv = f_2.invert().unwrap();
+    let f_2_inv = F::from(2 as u64).invert().unwrap();
 
     let mut eval = evals
         .iter()
@@ -1968,13 +2015,13 @@ where
     let mut oracles = Vec::<Output<H>>::with_capacity(num_rounds);
     for iter in 0..num_rounds {
         let a = transcript.read_field_elements(3).unwrap();
-        if eval != (F::ONE + F::ONE) * a[2] + a[1] + a[0] {
+        if eval != a[2].double() + a[1] + a[0] {
             println!("Error in round {iter} of sum-check");
             println!("Prover poly in round {iter} is {:?}", a);
             return Err(Error::InvalidPcsOpen("Sum check failed".to_string()));
         } else {
             let r = transcript.squeeze_challenge();
-            eval = a[2] + a[1] * r + a[0] * r * r;
+            eval = a[2] + (a[1] + a[0] * r) * r;
             challenges.push(r);
             let temp = transcript.read_commitment().unwrap();
             oracles.push(temp);
@@ -2017,21 +2064,29 @@ where
     let queries: Vec<usize> = (0..num_queries)
         .map(|i| squeeze_challenge_idx(transcript, (1 << vp.log_rate) * (1 << vp.num_vars) / 2))
         .collect();
-
+    let mut merkle_paths1 = Vec::new();
+    let mut merkle_paths2 = Vec::new();
+    let mut merkle_paths3 = Vec::new();
+    let mut merkle_paths4 = Vec::new();
+    let mut collect_elems1 = Vec::new();
+    // let mut collect_elems2 = Vec::new();
+    let mut collect_hashes1 = Vec::new();
+    let mut collect_hashes2 = Vec::new();
+    let mut collect_elems = Vec::new();
+    let start_time = Instant::now();
     for i in 0..num_queries {
         let mut elems = Vec::<(F, F)>::with_capacity(num_queries);
         elems.push((F::ZERO, F::ZERO));
-        let mut query_idx = queries[i];
-
         // Reading the queried elements and Merkle path for p_p_prime
         let mut elem_1 = transcript.read_field_element().unwrap();
         let mut elem_2 = transcript.read_field_element().unwrap();
-        elems[0].0 += random_combiners[0] * elem_1;
-        elems[0].1 += random_combiners[0] * elem_2;
+        elems[0].0 = random_combiners[0] * elem_1;
+        elems[0].1 = random_combiners[0] * elem_2;
         let merkle_path = transcript
             .read_commitments(vp.log_rate + vp.num_vars)
             .unwrap();
-        authenticate_merkle_path::<F, H>(2 * query_idx, (elem_1, elem_2), merkle_path, &comm);
+        collect_elems1.push((elem_1.clone(), elem_2.clone()));
+        merkle_paths1.push(merkle_path);
 
         // Reading the queried elements and Merkle path for h_erow and h_ecol
         let mut hasher_1 = H::new();
@@ -2044,19 +2099,14 @@ where
             elems[0].0 += random_combiners[j + 1] * elem_1;
             elems[0].1 += random_combiners[j + 1] * elem_2;
         }
-        let merkle_path = transcript
-            .read_commitments(vp.log_rate + vp.num_vars)
-            .unwrap();
 
-        let hash_1 = hasher_1.finalize_fixed();
-        let hash_2 = hasher_2.finalize_fixed();
-
-        authenticate_merkle_path_hash::<F, H>(
-            2 * query_idx,
-            (hash_1, hash_2),
-            merkle_path,
-            &batch_comm_1,
+        merkle_paths2.push(
+            transcript
+                .read_commitments(vp.log_rate + vp.num_vars)
+                .unwrap(),
         );
+        collect_hashes1.push((hasher_1.finalize_fixed(), hasher_2.finalize_fixed()));
+
         // Reading the queried elements and Merkle path for h_val, h_row, h_col,
         // read_ts_row, read_ts_col, final_ts_row_col
         let mut hasher_1 = H::new();
@@ -2072,36 +2122,58 @@ where
         let merkle_path = transcript
             .read_commitments(vp.log_rate + vp.num_vars)
             .unwrap();
-        let hash_1 = hasher_1.finalize_fixed();
-        let hash_2 = hasher_2.finalize_fixed();
-        authenticate_merkle_path_hash::<F, H>(
-            2 * query_idx,
-            (hash_1, hash_2),
-            merkle_path,
-            &batch_comm_2,
-        );
-        query_idx = query_idx / 2;
+        merkle_paths3.push(merkle_path);
+        collect_hashes2.push((hasher_1.finalize_fixed(), hasher_2.finalize_fixed()));
 
+        let mut merkle_paths = Vec::new();
         for iter in 1..num_rounds + 1 {
-            elem_1 = transcript.read_field_element().unwrap();
-            elem_2 = transcript.read_field_element().unwrap();
-            elems.push((elem_1, elem_2));
-
-            let merkle_path = transcript
-                .read_commitments(vp.log_rate + vp.num_vars - iter)
-                .unwrap();
-            authenticate_merkle_path::<F, H>(
-                2 * query_idx,
-                (elem_1, elem_2),
-                merkle_path,
-                &oracles[iter - 1],
+            elems.push((
+                transcript.read_field_element().unwrap(),
+                transcript.read_field_element().unwrap(),
+            ));
+            merkle_paths.push(
+                transcript
+                    .read_commitments(vp.log_rate + vp.num_vars - iter)
+                    .unwrap(),
             );
-            query_idx = query_idx / 2;
         }
 
-        query_idx = queries[i];
+        merkle_paths4.push(merkle_paths);
+        collect_elems.push(elems);
+    }
+    println!("time for authentications {:?}", start_time.elapsed());
+    let start_time = Instant::now();
+    (0..num_queries).into_par_iter().for_each(|i| {
+        authenticate_merkle_path::<F, H>(
+            2 * queries[i],
+            &collect_elems1[i],
+            &merkle_paths1[i],
+            &comm,
+        );
+        authenticate_merkle_path_hash::<F, H>(
+            2 * queries[i],
+            &collect_hashes1[i],
+            &merkle_paths2[i],
+            &batch_comm_1,
+        );
+        authenticate_merkle_path_hash::<F, H>(
+            2 * queries[i],
+            &collect_hashes2[i],
+            &merkle_paths3[i],
+            &batch_comm_2,
+        );
 
-        for iter in 1..elems.len() {
+        (1..num_rounds + 1).into_par_iter().for_each(|iter| {
+            authenticate_merkle_path::<F, H>(
+                2 * queries[i] / (1 << iter),
+                &collect_elems[i][iter],
+                &merkle_paths4[i][iter - 1],
+                &oracles[iter - 1],
+            );
+        });
+        let elems = &collect_elems[i];
+        (1..elems.len()).into_par_iter().for_each(|iter| {
+            let query_idx = queries[i] / (1 << (iter - 1));
             let ri0 = reverse_bits(2 * query_idx, vp.num_vars + vp.log_rate - iter + 1);
             let ri1 = reverse_bits(2 * query_idx + 1, vp.num_vars + vp.log_rate - iter + 1);
 
@@ -2114,34 +2186,28 @@ where
             let x0: F = basefold::query_point(
                 1 << (num_vars + vp.log_rate - iter + 1),
                 ri0,
-                &mut rng,
+                &mut rng.clone(),
                 num_vars + vp.log_rate - iter,
                 &mut cipher,
             );
-            let x1 = -x0;
 
-            let mut c1 = elems[iter - 1].0 + elems[iter - 1].1;
-            c1 = c1 * f_2_inv;
-            let mut c2 = elems[iter - 1].0 - elems[iter - 1].1;
-            c2 = c2 * f_2_inv;
-            c2 = c2 * x0.invert().unwrap();
-            let mut c = c1 + challenges[iter - 1] * c2;
+            let c1 = (elems[iter - 1].0 + elems[iter - 1].1) * f_2_inv;
+            let c2 = (elems[iter - 1].0 - elems[iter - 1].1) * f_2_inv * x0.invert().unwrap();
+            let c = c1 + challenges[iter - 1] * c2;
             if query_idx % 2 == 0 {
                 if c != elems[iter].0 {
-                    println!("ORACLES INCONSISTENT!");
                     println!("Iter {iter}");
-                    return Err(Error::InvalidPcsOpen("Oracles inconsistent".to_string()));
+                    panic!("ORACLES INCONSISTENT!");
                 }
             } else {
                 if c != elems[iter].1 {
-                    println!("ORACLES INCONSISTENT!");
                     println!("Iter {iter}");
-                    return Err(Error::InvalidPcsOpen("Oracles inconsistent".to_string()));
+                    panic!("ORACLES INCONSISTENT!");
                 }
             }
-            query_idx /= 2;
-        }
-    }
+        });
+    });
+    println!("authenticate time {:?}", start_time.elapsed());
     Ok(())
 }
 
@@ -2181,8 +2247,8 @@ fn write_merkle_path_2<F: PrimeField, H: Hash>(
 
 fn authenticate_merkle_path<F: PrimeField, H: Hash>(
     mut idx: usize,
-    elems: (F, F),
-    merkle_path: Vec<Output<H>>,
+    elems: &(F, F),
+    merkle_path: &Vec<Output<H>>,
     root: &Output<H>,
 ) -> Result<(), Error> {
     let path_len = merkle_path.len();
@@ -2221,8 +2287,8 @@ fn authenticate_merkle_path<F: PrimeField, H: Hash>(
 
 fn authenticate_merkle_path_hash<F: PrimeField, H: Hash>(
     mut idx: usize,
-    elems: (Output<H>, Output<H>),
-    merkle_path: Vec<Output<H>>,
+    elems: &(Output<H>, Output<H>),
+    merkle_path: &Vec<Output<H>>,
     root: &Output<H>,
 ) -> Result<(), Error> {
     let path_len = merkle_path.len();
@@ -2369,8 +2435,8 @@ mod test {
 
         authenticate_merkle_path::<Fr, Blake2s256>(
             idx,
-            elems,
-            transcript,
+            &elems,
+            &transcript,
             &merkle_tree[merkle_tree.len() - 1][0],
         );
     }
