@@ -14,7 +14,7 @@ use std::{
     cmp::{max, min},
     collections::BTreeSet,
     fmt::Debug,
-    iter
+    iter,
 };
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -23,12 +23,11 @@ pub struct Brakedown<F> {
     codeword_len: usize,
     num_column_opening: usize,
     num_proximity_testing: usize,
-    pub (super) a: Vec<SparseMatrix<F>>,
-    pub (super) b: Vec<SparseMatrix<F>>,
+    pub(super) a: Vec<SparseMatrix<F>>,
+    pub(super) b: Vec<SparseMatrix<F>>,
 }
 
 const HABOCK_BOUND: f64 = 13.0;
-
 
 impl<F: PrimeField> Brakedown<F> {
     pub fn proof_size<S: BrakedownSpec>(n_0: usize, c: usize, r: usize) -> usize {
@@ -57,7 +56,6 @@ impl<F: PrimeField> Brakedown<F> {
                 }
             });
 
-
         let codeword_len = S::codeword_len(log2_q, row_len, n_0);
         let num_column_opening = S::num_column_opening();
         let num_proximity_testing = S::num_proximity_testing(log2_q, row_len, n_0);
@@ -75,15 +73,15 @@ impl<F: PrimeField> Brakedown<F> {
 
     pub fn new<S: BrakedownSpec>(
         num_vars: usize,
-        n_0: usize,             // min(20, no. of coeffs)
-        n_1: usize,             // col size    
+        n_0: usize, // min(20, no. of coeffs)
+        n_1: usize, // col size
         rng: impl RngCore,
     ) -> Self {
         assert!(1 << num_vars > n_0);
 
         let log2_q = F::NUM_BITS as usize;
         let min_log2_n = (n_0 + 1).next_power_of_two().ilog2() as usize;
-        let row_len = (1 << num_vars)/n_1;            //assumes n_1 a power of 2 and no of coeffs >= 256
+        let row_len = (1 << num_vars) / n_1; //assumes n_1 a power of 2 and no of coeffs >= 256
 
         let codeword_len = S::codeword_len(log2_q, row_len, n_0);
         let num_column_opening = S::num_column_opening();
@@ -106,15 +104,15 @@ impl<F: PrimeField> Brakedown<F> {
         let mut val = Vec::<F>::new();
         let mut row_offset: usize = 0;
         let mut col_offset: usize = 0;
-        
-        for i in 0..self.a.len()-1 {
+
+        for i in 0..self.a.len() - 1 {
             let n = self.a[i].dimension.n;
             let m = self.a[i].dimension.m;
             let d = self.a[i].dimension.d;
             for j in 0..self.a[i].cells.len() {
                 let (c, v) = self.a[i].cells[j];
                 val.push(v);
-                row.push(row_offset + j/d);
+                row.push(row_offset + j / d);
                 col.push(col_offset + c);
             }
             row_offset += n;
@@ -125,7 +123,7 @@ impl<F: PrimeField> Brakedown<F> {
             // }
             col_offset += m;
         }
-        let last_n = self.a.last().unwrap().dimension.n;  
+        let last_n = self.a.last().unwrap().dimension.n;
         let last_m = self.a.last().unwrap().dimension.m;
         let last_d = self.a.last().unwrap().dimension.d;
         let mut a_last = vec![vec![F::ZERO; last_m]; last_n];
@@ -148,13 +146,13 @@ impl<F: PrimeField> Brakedown<F> {
                 col.push(col_offset + j);
             }
         }
-        row_offset += last_n;    // num rows in the parity check matrix of RS code
-        // for j in 0..rs_code_len {
-        //     val.push(-F::ONE);
-        //     row.push(row_offset + j);
-        //     col.push(col_offset + j);
-        // }
-        col_offset += rs_code_len;    // num cols in the parity check matrix of RS code
+        row_offset += last_n; // num rows in the parity check matrix of RS code
+                              // for j in 0..rs_code_len {
+                              //     val.push(-F::ONE);
+                              //     row.push(row_offset + j);
+                              //     col.push(col_offset + j);
+                              // }
+        col_offset += rs_code_len; // num cols in the parity check matrix of RS code
 
         for i in (0..self.b.len()).rev() {
             let n = self.b[i].dimension.n;
@@ -163,7 +161,7 @@ impl<F: PrimeField> Brakedown<F> {
             for j in 0..self.b[i].cells.len() {
                 let (c, v) = self.b[i].cells[j];
                 val.push(v);
-                row.push(row_offset + j/d);
+                row.push(row_offset + j / d);
                 col.push(col_offset + c);
             }
             // for j in 0..m {
@@ -178,7 +176,7 @@ impl<F: PrimeField> Brakedown<F> {
         ParityCheckMatrix {
             row: row,
             col: col,
-            val: val
+            val: val,
         }
     }
 
@@ -188,21 +186,21 @@ impl<F: PrimeField> Brakedown<F> {
         let mut val = Vec::<F>::new();
         let mut row_offset: usize = 0;
         let mut col_offset: usize = 0;
-        
-        for i in 0..self.a.len()-1 {
+
+        for i in 0..self.a.len() - 1 {
             let n = self.a[i].dimension.n;
             let m = self.a[i].dimension.m;
             let d = self.a[i].dimension.d;
             for j in 0..self.a[i].cells.len() {
                 let (c, v) = self.a[i].cells[j];
                 val.push(v);
-                row.push(row_offset + j/d);
+                row.push(row_offset + j / d);
                 col.push(col_offset + c);
             }
             row_offset += n;
             col_offset += m;
         }
-        let last_n = self.a.last().unwrap().dimension.n;  
+        let last_n = self.a.last().unwrap().dimension.n;
         let last_m = self.a.last().unwrap().dimension.m;
         let last_d = self.a.last().unwrap().dimension.d;
         let mut a_last = vec![vec![F::ZERO; last_m]; last_n];
@@ -225,8 +223,8 @@ impl<F: PrimeField> Brakedown<F> {
                 col.push(col_offset + j);
             }
         }
-        row_offset += last_n;    // num rows in the parity check matrix of RS code
-        col_offset += rs_code_len;    // num cols in the parity check matrix of RS code
+        row_offset += last_n; // num rows in the parity check matrix of RS code
+        col_offset += rs_code_len; // num cols in the parity check matrix of RS code
 
         for i in (0..self.b.len()).rev() {
             let n = self.b[i].dimension.n;
@@ -235,7 +233,7 @@ impl<F: PrimeField> Brakedown<F> {
             for j in 0..self.b[i].cells.len() {
                 let (c, v) = self.b[i].cells[j];
                 val.push(v);
-                row.push(row_offset + j/d);
+                row.push(row_offset + j / d);
                 col.push(col_offset + c);
             }
             col_offset += m;
@@ -245,7 +243,7 @@ impl<F: PrimeField> Brakedown<F> {
         ParityCheckMatrix {
             row: row,
             col: col,
-            val: val
+            val: val,
         }
     }
 }
@@ -255,7 +253,7 @@ impl<F: PrimeField> Brakedown<F> {
 pub struct ParityCheckMatrix<F> {
     pub row: Vec<usize>,
     pub col: Vec<usize>,
-    pub val: Vec<F>
+    pub val: Vec<F>,
 }
 
 impl<F: PrimeField> LinearCodes<F> for Brakedown<F> {
@@ -337,10 +335,10 @@ pub trait BrakedownSpec: Debug {
         let alpha = Self::ALPHA;
         let beta = Self::BETA;
         let n = n as f64;
-        if n >= HABOCK_BOUND { // make HABOCK_BOUND dynamic. Store in code spec
+        if n >= HABOCK_BOUND {
+            // make HABOCK_BOUND dynamic. Store in code spec
             8 // make dynamic
-        }
-        else {
+        } else {
             min(
                 max(ceil(1.28 * beta * n), ceil(beta * n) + 4),
                 ceil(
@@ -348,7 +346,7 @@ pub trait BrakedownSpec: Debug {
                         / (beta * (alpha / (1.28 * beta)).log2()),
                 ),
             )
-        }  
+        }
     }
 
     fn d_n(log2_q: usize, n: usize) -> usize {
@@ -361,8 +359,7 @@ pub trait BrakedownSpec: Debug {
         let n = n as f64;
         if n >= HABOCK_BOUND {
             13 // make dynamic
-        }
-        else {
+        } else {
             min(
                 ceil((2.0 * beta + ((r - 1.0) + 110.0 / n) / log2_q) * n),
                 ceil(
@@ -371,14 +368,12 @@ pub trait BrakedownSpec: Debug {
                 ),
             )
         }
-        
     }
 
     fn num_column_opening() -> usize {
-//	1
+        //	1
         let numc = ceil(-Self::LAMBDA / (1.0 - Self::delta() / 3.0).log2());
-//	println!("num c {:?}", numc);
-	numc
+        numc
     }
 
     fn num_proximity_testing(log2_q: usize, n: usize, n_0: usize) -> usize {
@@ -465,9 +460,9 @@ impl_spec_128!(
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct SparseMatrixDimension {
-    pub (super) n: usize,
-    pub (super) m: usize,
-    pub (super) d: usize,
+    pub(super) n: usize,
+    pub(super) m: usize,
+    pub(super) d: usize,
     /*n: usize,
     m: usize,
     d: usize*/
@@ -481,8 +476,8 @@ impl SparseMatrixDimension {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SparseMatrix<F> {
-    pub (super) dimension: SparseMatrixDimension,
-    pub (super) cells: Vec<(usize, F)>,
+    pub(super) dimension: SparseMatrixDimension,
+    pub(super) cells: Vec<(usize, F)>,
 }
 
 impl<F: Field> SparseMatrix<F> {
@@ -547,7 +542,7 @@ fn ceil(v: f64) -> usize {
     v.ceil() as usize
 }
 
-fn invert_matrix<F: PrimeField> (mut mat: Vec<Vec::<F>>) -> Vec<Vec::<F>>{
+fn invert_matrix<F: PrimeField>(mut mat: Vec<Vec<F>>) -> Vec<Vec<F>> {
     let mut inv = vec![vec![F::ZERO; mat.len()]; mat.len()];
     for i in 0..mat.len() {
         inv[i][i] = F::ONE;
@@ -556,11 +551,11 @@ fn invert_matrix<F: PrimeField> (mut mat: Vec<Vec::<F>>) -> Vec<Vec::<F>>{
     for i in 0..mat.len() {
         let a_i = mat[i][i];
         let a_i_inv = a_i.invert().unwrap();
-        for j in i+1..mat.len() {
+        for j in i + 1..mat.len() {
             let scaling = (mat[j][i] * a_i_inv);
             for k in 0..mat.len() {
-                mat[j][k] = mat[j][k] - mat[i][k]*scaling;;
-                inv[j][k] = inv[j][k] - inv[i][k]*scaling;
+                mat[j][k] = mat[j][k] - mat[i][k] * scaling;
+                inv[j][k] = inv[j][k] - inv[i][k] * scaling;
             }
         }
     }
@@ -568,11 +563,11 @@ fn invert_matrix<F: PrimeField> (mut mat: Vec<Vec::<F>>) -> Vec<Vec::<F>>{
     for i in (0..mat.len()).rev() {
         let a_i = mat[i][i];
         let a_i_inv = a_i.invert().unwrap();
-        for j in (0..i-1).rev() {
+        for j in (0..i - 1).rev() {
             let scaling = (mat[j][i] * a_i_inv);
             for k in 0..mat.len() {
-                mat[j][k] = mat[j][k] - mat[i][k]*scaling;
-                inv[j][k] = inv[j][k] - inv[i][k]*scaling;
+                mat[j][k] = mat[j][k] - mat[i][k] * scaling;
+                inv[j][k] = inv[j][k] - inv[i][k] * scaling;
             }
         }
     }
@@ -586,7 +581,7 @@ fn invert_matrix<F: PrimeField> (mut mat: Vec<Vec::<F>>) -> Vec<Vec::<F>>{
     inv
 }
 
-fn multiply_matrix<F: PrimeField>  (mat_1: Vec<Vec::<F>>, mat_2: Vec<Vec::<F>>) -> Vec<Vec::<F>>{
+fn multiply_matrix<F: PrimeField>(mat_1: Vec<Vec<F>>, mat_2: Vec<Vec<F>>) -> Vec<Vec<F>> {
     let rows = mat_1.len();
     let cols = mat_2[0].len();
     let sums = mat_2.len();
@@ -605,15 +600,15 @@ fn multiply_matrix<F: PrimeField>  (mat_1: Vec<Vec::<F>>, mat_2: Vec<Vec::<F>>) 
 fn vandermonde_matrix<F: PrimeField>(k: usize, n: usize) -> Vec<Vec<F>> {
     let mut vand_mat = vec![vec![F::ONE; n]; k];
     for j in 1..n {
-        vand_mat[1][j] = vand_mat[1][j-1] + F::ONE;
+        vand_mat[1][j] = vand_mat[1][j - 1] + F::ONE;
         for i in 2..k {
-            vand_mat[i][j] = vand_mat[i-1][j] * vand_mat[1][j];
+            vand_mat[i][j] = vand_mat[i - 1][j] * vand_mat[1][j];
         }
     }
     vand_mat
 }
 
-fn multiply_matrix_i32  (mat_1: Vec<Vec::<i32>>, mat_2: Vec<Vec::<i32>>) -> Vec<Vec::<i32>>{
+fn multiply_matrix_i32(mat_1: Vec<Vec<i32>>, mat_2: Vec<Vec<i32>>) -> Vec<Vec<i32>> {
     let rows = mat_1.len();
     let cols = mat_2[0].len();
     let sums = mat_2.len();
@@ -629,40 +624,38 @@ fn multiply_matrix_i32  (mat_1: Vec<Vec::<i32>>, mat_2: Vec<Vec::<i32>>) -> Vec<
     mat_3
 }
 
-
-fn invert_matrix_f64 (mut mat: Vec<Vec::<f64>>) -> Vec<Vec::<f64>>{
+fn invert_matrix_f64(mut mat: Vec<Vec<f64>>) -> Vec<Vec<f64>> {
     let mut inv = vec![vec![0.0; mat.len()]; mat.len()];
     for i in 0..mat.len() {
         inv[i][i] = 1.0;
     }
 
-    for i in 0..mat.len()-1 {
+    for i in 0..mat.len() - 1 {
         let a_i = mat[i][i];
-        let a_i_inv = 1.0/a_i;
-        println!("{a_i_inv}");
-        for j in i+1..mat.len() {
+        let a_i_inv = 1.0 / a_i;
+        for j in i + 1..mat.len() {
             let scaling = (mat[j][i] * a_i_inv);
             for k in 0..mat.len() {
-                mat[j][k] -= mat[i][k]*scaling;;
-                inv[j][k] -= inv[i][k]*scaling;
+                mat[j][k] -= mat[i][k] * scaling;
+                inv[j][k] -= inv[i][k] * scaling;
             }
         }
     }
 
     for i in (1..mat.len()).rev() {
         let a_i = mat[i][i];
-        let a_i_inv = 1.0/a_i;
-        for j in (0..=i-1).rev() {
+        let a_i_inv = 1.0 / a_i;
+        for j in (0..=i - 1).rev() {
             let scaling = (mat[j][i] * a_i_inv);
             for k in 0..mat.len() {
-                mat[j][k] -= mat[i][k]*scaling;
-                inv[j][k] -= inv[i][k]*scaling;
+                mat[j][k] -= mat[i][k] * scaling;
+                inv[j][k] -= inv[i][k] * scaling;
             }
         }
     }
 
     for i in 0..mat.len() {
-        let a_i_inv = 1.0/mat[i][i];
+        let a_i_inv = 1.0 / mat[i][i];
         for j in 0..mat.len() {
             inv[i][j] = inv[i][j] * a_i_inv;
         }
@@ -673,7 +666,8 @@ fn invert_matrix_f64 (mut mat: Vec<Vec::<f64>>) -> Vec<Vec::<f64>>{
 #[cfg(test)]
 mod test {
     use crate::util::code::{
-        brakedown::multiply_matrix_i32, BrakedownSpec, BrakedownSpec1, BrakedownSpec2, BrakedownSpec3, BrakedownSpec4, BrakedownSpec5, BrakedownSpec6
+        brakedown::multiply_matrix_i32, BrakedownSpec, BrakedownSpec1, BrakedownSpec2,
+        BrakedownSpec3, BrakedownSpec4, BrakedownSpec5, BrakedownSpec6,
     };
 
     use super::invert_matrix_f64;
@@ -689,7 +683,6 @@ mod test {
         let n = 1 << 30;
         let n_0 = 30;
 
-	
         assert!(S::delta() - delta < 1e-3);
         assert_eq!(S::c_n(n), c_n);
         assert_eq!(S::d_n(log2_q, n), d_n);
@@ -723,23 +716,20 @@ mod test {
     }
 
     #[test]
-    fn test_invert_matrix () {
-        let mut mat = [[1.0, 0.0, 0.0].to_vec(), 
-                    [1.0, 1.0, 1.0].to_vec(),
-                    [1.0, 2.0, 4.0].to_vec()].to_vec();
+    fn test_invert_matrix() {
+        let mut mat = [
+            [1.0, 0.0, 0.0].to_vec(),
+            [1.0, 1.0, 1.0].to_vec(),
+            [1.0, 2.0, 4.0].to_vec(),
+        ]
+        .to_vec();
         let inv = invert_matrix_f64(mat);
-        println!("{:?}", inv);
-    }  
+    }
 
     #[test]
-    fn test_multiply_matrix () {
-        let mut mat_1 = [[1, 0, 0].to_vec(), 
-                    [1, 1, 1].to_vec(),
-                    [1, 2, 4].to_vec()].to_vec();
-        let mut mat_2 = [[1, 0, 0].to_vec(), 
-                    [1, 1, 1].to_vec(),
-                    [1, 2, 4].to_vec()].to_vec();
+    fn test_multiply_matrix() {
+        let mut mat_1 = [[1, 0, 0].to_vec(), [1, 1, 1].to_vec(), [1, 2, 4].to_vec()].to_vec();
+        let mut mat_2 = [[1, 0, 0].to_vec(), [1, 1, 1].to_vec(), [1, 2, 4].to_vec()].to_vec();
         let inv = multiply_matrix_i32(mat_1, mat_2);
-        println!("{:?}", inv);
-    }  
+    }
 }

@@ -418,7 +418,6 @@ where
         let mut combined_codeword = vec![F::ZERO; codeword_len];
 
         // Taking a linear combination of the rows of the commitment matrix
-        let start_time = Instant::now();
         combined_codeword
             .par_iter_mut()
             .enumerate()
@@ -427,7 +426,6 @@ where
                     *codeword += x_0[i] * comm.rows[codeword_len * i + j];
                 }
             });
-        println!("combine codeword time {:?}", start_time.elapsed());
 
         // Commiting to the message and (codeword - message) parts of combined_codeword
         let mut p_p_prime: Vec<F> = Vec::new();
@@ -438,16 +436,12 @@ where
             p_p_prime.extend(&vec![F::ZERO; 2 * row_len - codeword_len]);
         }
 
-        let now = Instant::now();
-
         let p_p_prime_commit = Basefold::<F, H, S>::commit(
             &pp.basefold,
             &MultilinearPolynomial::new(reverse_index_bits(&p_p_prime)),
         )
         .unwrap();
         transcript.write_commitment(p_p_prime_commit.codeword_tree_root());
-
-        println!("Time to commit to (p,p') = {:?}", now.elapsed());
 
         // Proximity test for the commitment matrix
         let depth = codeword_len.next_power_of_two().ilog2() as usize;
@@ -499,7 +493,6 @@ where
         //rx
         let mut first_sum_check_random_points = vec![F::ZERO; sum_check_rounds];
 
-        let now = Instant::now();
         first_sum_check_prover::<F, H, S>(
             sum_check_rounds,
             small_p_p_prime,
@@ -509,8 +502,6 @@ where
             &mut first_sum_check_random_points,
             transcript,
         );
-
-        println!("Time for first sum-check = {:?}", now.elapsed());
 
         //TODO 3: evaluate h, p, p_prime at first_sum_check_random_points. Shouldn't folding in the sum-check give this?
         // let h_eval = evaluate_poly(&h, &first_sum_check_random_points);
@@ -546,22 +537,16 @@ where
 
         let mut polys: Vec<Vec<F>> = [h_erow.clone(), h_ecol.clone()].to_vec();
 
-        let now = Instant::now();
-
         let h_erow_ecol_commit = basefold_batch_commit::<F, H, S>(&pp.basefold, &mut polys);
 
         let temp = h_erow_ecol_commit.codeword_tree.len();
         transcript.write_commitment(&h_erow_ecol_commit.codeword_tree[temp - 1][0]);
-        println!(
-            "Time to batch commit to h_erow and h_ecol = {:?}",
-            now.elapsed()
-        );
+
         assert!(h_val.len().is_power_of_two());
 
         let sum_check_rounds = pp.basefold_poly_size.ilog2() as usize; // Changed by Bhargav
         let mut second_sum_check_random_points = vec![F::ZERO; sum_check_rounds];
 
-        let now = Instant::now();
         second_sum_check_prover::<F, H, S>(
             sum_check_rounds,
             h_erow.clone(),
@@ -570,7 +555,6 @@ where
             &mut second_sum_check_random_points,
             transcript,
         );
-        println!("Time for second sum-check = {:?}", now.elapsed());
 
         //Sample two random points gamma, tau.
         let gamma_tau = transcript.squeeze_challenges(2);
@@ -598,7 +582,6 @@ where
         let mut read_ts_col: Vec<F> = pp.trusted_commit.bh_evals[4].poly.to_vec();
         let mut final_ts_col: Vec<F> =
             pp.trusted_commit.bh_evals[5].poly[2 * row_len..4 * row_len].to_vec();
-        let start_time = Instant::now();
         let (
             (
                 w_init_circuit_layers_row,
@@ -638,9 +621,7 @@ where
                 )
             },
         );
-        println!("Circuits time {:?}", start_time.elapsed());
 
-        let start_time = Instant::now();
         let random_points1 = gkr_prover::<F, H, S>(
             &[
                 &w_init_circuit_layers_row,
@@ -665,8 +646,6 @@ where
             .to_vec(),
             transcript,
         );
-        println!("Gkr Prover {:?}", start_time.elapsed());
-        let start_time = Instant::now();
         let (
             (h_row_eval, h_col_eval, read_ts_row_eval),
             (read_ts_col_eval, h_erow_eval, h_ecol_eval),
@@ -746,7 +725,6 @@ where
         let batch_sum_check_random_combiner = transcript.squeeze_challenges(13);
 
         //Build eq_vector corresponding to each point (6 in total)
-        let start_time = Instant::now();
         let (
             (eq_p_prime_fsrp, eq_p_prime_rp_u, eq_p_prime_rp_x0),
             (eq_schrp, eq_rp2, eq_final_ts_rc_rp),
@@ -766,8 +744,6 @@ where
                 )
             },
         );
-
-        println!("time to compute fourier coeffs {:?}", start_time.elapsed());
 
         let vec2 = [
             batch_sum_check_random_combiner[0],
@@ -850,9 +826,7 @@ where
         let start_time = Instant::now();
         let (p_p_prime_eval, mut batch_sum_check_rp) =
             batch_sum_check_prover::<F, H, S>(&mut polys, eqs, transcript);
-        println!("batch sum check prover {:?}", start_time.elapsed());
 
-        let start_time = Instant::now();
         let (
             (h_val_eval, h_erow_eval, h_ecol_eval, h_row_eval),
             (h_col_eval, read_ts_row_eval, read_ts_col_eval, extended_final_ts_row_col_eval),
@@ -874,7 +848,6 @@ where
                 )
             },
         );
-        println!("evaluate poly at batch sum rp {:?}", start_time.elapsed());
 
         transcript
             .write_field_elements(&[
@@ -891,7 +864,6 @@ where
 
         // Calling Basefold batch open
         let mut polys = Vec::<Vec<F>>::with_capacity(9);
-        let start_time = Instant::now();
 
         reverse_index_bits_in_place(&mut p_p_prime);
         polys.push(p_p_prime);
@@ -920,8 +892,6 @@ where
         reverse_index_bits_in_place(&mut extended_final_ts_row_col);
         polys.push(extended_final_ts_row_col);
 
-        println!("time to reverse index {:?}", start_time.elapsed());
-
         let random_combiners = transcript.squeeze_challenges(polys.len());
 
         batch_sum_check_rp.reverse();
@@ -937,8 +907,6 @@ where
         evals.push(read_ts_col_eval);
         evals.push(extended_final_ts_row_col_eval);
 
-        let start_time = Instant::now();
-
         basefold_batch_open::<F, H, S>(
             &pp.basefold,
             &mut polys,
@@ -950,10 +918,6 @@ where
             &evals,
             transcript,
         );
-
-        println!("Time for Basefold batch open =  {:?}", start_time.elapsed());
-
-        println!("PROVER DONE!");
 
         Ok(())
     }
@@ -1004,7 +968,6 @@ where
         let depth = codeword_len.next_power_of_two().ilog2() as usize;
         let mut col_idx = vec![0 as usize; vp.num_brakedown_queries];
         let mut cols = Vec::<F>::new();
-        let start_time = Instant::now();
         let mut paths = Vec::new();
         for i in 0..vp.num_brakedown_queries {
             col_idx[i] = squeeze_challenge_idx(transcript, codeword_len);
@@ -1039,9 +1002,7 @@ where
             }
         });
         drop(paths);
-        println!("time 1 {:?}", start_time.elapsed());
 
-        let start_time = Instant::now();
         let mut u = transcript.squeeze_challenges(row_len.ilog2().try_into().unwrap());
         let p_prime_at_u = transcript.read_field_element()?;
         // let mut sum_check_val = F::ZERO;
@@ -1064,9 +1025,7 @@ where
             .unwrap()
             * random_combiners[0]
             + p_prime_at_u * random_combiners[1];
-        println!("time 2 {:?}", start_time.elapsed());
 
-        let start_time = Instant::now();
         let sum_check_rounds = (2 * row_len).next_power_of_two().ilog2();
         let mut first_sum_check_random_points = vec![F::ZERO; sum_check_rounds as usize];
         for i in 0..sum_check_rounds as usize {
@@ -1079,9 +1038,7 @@ where
             first_sum_check_random_points[i] = r;
             sum_check_val = a[2] + (a[1] + a[0] * r) * r;
         }
-        println!("time 3 {:?}", start_time.elapsed());
 
-        let start_time = Instant::now();
         let witness_evals = transcript.read_field_elements(3).unwrap();
         let h_eval = witness_evals[0];
         let p_eval = witness_evals[1];
@@ -1091,7 +1048,6 @@ where
 
         /*evaluating mask at first_sum_check_random_points */
 
-        println!("vp.num_brakedown_queries {:?}", vp.num_brakedown_queries);
         let mask_eval = (0..vp.num_brakedown_queries)
             .into_par_iter()
             .fold(
@@ -1118,14 +1074,9 @@ where
         let final_value =
             (random_combiners[0] * mask_eval + random_combiners[1] * h_eval) * p_p_prime_eval;
         if sum_check_val != final_value {
-            println!("Error in final check of first sum-check");
             return Err(Error::InvalidPcsOpen("Sum check failed".to_string()));
         }
-        println!("time 4 {:?}", start_time.elapsed());
 
-        //transcript.write_field_elements([h_eval, p_eval, p_prime_eval].iter());
-
-        let start_time = Instant::now();
         let h_erow_ecol_commit = transcript.read_commitment().unwrap();
 
         /*SECOND SUM_CHECK VERIFICATION */
@@ -1136,7 +1087,6 @@ where
         for i in 0..sum_check_rounds as usize {
             let mut a = transcript.read_field_elements(4).unwrap();
             if sum_check_val != a[3].double() + a[2] + a[1] + a[0] {
-                println!("Error in round {i}");
                 return Err(Error::InvalidPcsOpen("Second Sum check failed".to_string()));
             }
             let r = transcript.squeeze_challenge();
@@ -1149,16 +1099,13 @@ where
 
         let final_value = h_val_eval * h_erow_eval * h_ecol_eval;
         if sum_check_val != final_value {
-            println!("Error in final check of second sum-check");
             return Err(Error::InvalidPcsOpen("Sum check failed".to_string()));
         }
-        println!("time 5 {:?}", start_time.elapsed());
 
         let gamma_tau = transcript.squeeze_challenges(2);
 
         let mut padded_u = [F::ZERO].to_vec();
         padded_u.extend(&u);
-        let start_time = Instant::now();
 
         let (expected_eval, combiners, random_points1, output_layer_eval1) =
             gkr_verifier::<F>((2 * row_len).ilog2() as usize, transcript, 4);
@@ -1223,8 +1170,6 @@ where
             4,
             &input_layer_evaluations,
         );
-        println!("time 6 {:?}", start_time.elapsed());
-        //TODO:- Add output layer check of gkr
 
         //Extended random points for p+p' corresponding to first_sum_check_random_points;
         let mut p_p_prime_fsrp = vec![
@@ -1286,21 +1231,18 @@ where
             .iter()
             .zip(batch_sum_check_random_combiner.iter())
             .fold(F::ZERO, |acc, (val1, val2)| acc + (*val1 * *val2));
-        let start_time = Instant::now();
         let (evals, mut batch_sum_check_rp) = batch_sum_check_verifier::<F>(
             &rx,
             claimed_eval,
             transcript,
             &batch_sum_check_random_combiner,
         );
-        println!("time 7 {:?}", start_time.elapsed());
 
         let random_combiners = transcript.squeeze_challenges(evals.len());
 
         batch_sum_check_rp.reverse();
 
         // return this
-        let start_time = Instant::now();
         basefold_batch_verify::<F, H, S>(
             &vp.basefold,
             &random_combiners,
@@ -1311,7 +1253,6 @@ where
             &evals,
             transcript,
         );
-        println!("time 7 {:?}", start_time.elapsed());
 
         Ok(())
     }
@@ -1814,7 +1755,6 @@ pub fn basefold_batch_open<F, H, S>(
     assert_eq!(polys.len(), random_combiners.len());
 
     let mut combined_poly = vec![F::ZERO; 1 << num_vars];
-    let start_time = Instant::now();
     combined_poly
         .par_iter_mut()
         .enumerate()
@@ -1823,12 +1763,7 @@ pub fn basefold_batch_open<F, H, S>(
                 *combined += random_combiners[i] * polys[i][j];
             }
         });
-    println!(
-        "Time to compute combined polynomial in basefold batch open = {:?}",
-        start_time.elapsed(),
-    );
 
-    let start_time = Instant::now();
     let mut combined_poly_clone = combined_poly.clone();
     reverse_index_bits_in_place(&mut combined_poly_clone);
     let mut point_clone = point.clone();
@@ -1842,9 +1777,7 @@ pub fn basefold_batch_open<F, H, S>(
     batch_comm_2.codewords.iter().for_each(|codeword| {
         codewords.push(&codeword.poly);
     });
-    println!("Time to push into codewords = {:?}", start_time.elapsed(),);
 
-    let start_time = Instant::now();
     let mut combined_codeword_0 = vec![F::ZERO; comm.codeword.poly.len()];
     combined_codeword_0
         .par_iter_mut()
@@ -1858,11 +1791,7 @@ pub fn basefold_batch_open<F, H, S>(
     let mut combined_codeword = Type1Polynomial {
         poly: combined_codeword_0,
     };
-    println!(
-        "Time to compute combined codeword in basefold batch open = {:?}",
-        start_time.elapsed(),
-    );
-    let start_time = Instant::now();
+
     // Assuming all polys have len 1 << num_vars
     let mut eq_vec = vec![F::ZERO; 1 << num_vars];
     eq_vec
@@ -1872,7 +1801,6 @@ pub fn basefold_batch_open<F, H, S>(
             *eq_element = eq(i, &point);
         });
 
-    println!("time to compute eq vec {:?}", start_time.elapsed());
     assert_eq!(eq_vec.len(), polys[0].len());
 
     let mut codewords = Vec::<Type1Polynomial<F>>::with_capacity(num_rounds);
@@ -1883,7 +1811,6 @@ pub fn basefold_batch_open<F, H, S>(
     let mut r_point = Vec::<F>::new();
 
     // Commit phase
-    let start_time = Instant::now();
 
     for iter in 0..num_rounds {
         let offset = eq_vec.len() / 2;
@@ -1925,22 +1852,12 @@ pub fn basefold_batch_open<F, H, S>(
         merkle_trees.push(basefold::merkelize::<F, H>(&combined_codeword));
         transcript.write_commitment(&merkle_trees[iter][merkle_trees[iter].len() - 1][0]);
     }
-    println!(
-        "Time for commit phase of basefold batch open {:?}",
-        start_time.elapsed()
-    );
-    let start_time = Instant::now();
 
     let eq_1 = evaluate_eq(&point, &r_point);
-    println!("time to compute eq1 {:?}", start_time.elapsed());
 
     // Query phase
-    let start_time = Instant::now();
     let num_queries = pp.num_verifier_queries;
-    println!(
-        "combined_codeword.poly.len() = {}",
-        comm.codeword.poly.len()
-    );
+
     let queries: Vec<usize> = (0..num_queries)
         .map(|_| squeeze_challenge_idx(transcript, comm.codeword.poly.len() / 2))
         .collect();
@@ -1973,10 +1890,6 @@ pub fn basefold_batch_open<F, H, S>(
             query >>= 1;
         }
     }
-    println!(
-        "Time for query phase of basefold batch open {:?}",
-        start_time.elapsed()
-    );
 }
 
 pub fn basefold_batch_verify<F, H, S>(
@@ -2016,8 +1929,6 @@ where
     for iter in 0..num_rounds {
         let a = transcript.read_field_elements(3).unwrap();
         if eval != a[2].double() + a[1] + a[0] {
-            println!("Error in round {iter} of sum-check");
-            println!("Prover poly in round {iter} is {:?}", a);
             return Err(Error::InvalidPcsOpen("Sum check failed".to_string()));
         } else {
             let r = transcript.squeeze_challenge();
@@ -2027,8 +1938,6 @@ where
             oracles.push(temp);
         }
     }
-
-    println!("Basefold batch verify commit phase done!");
 
     let eq = evaluate_eq(&point, &challenges);
 
@@ -2042,11 +1951,6 @@ where
 
     for i in 0..final_oracle.len() {
         if final_oracle_computed[i] != final_oracle[i] {
-            println!("Bad query = {i}");
-            println!(
-                "Final oracle computed = {:?}, final oracle = {:?}",
-                final_oracle_computed[i], final_oracle[i]
-            );
             return Err(Error::InvalidPcsOpen("Final oracle wrong".to_string()));
         }
     }
@@ -2073,7 +1977,6 @@ where
     let mut collect_hashes1 = Vec::new();
     let mut collect_hashes2 = Vec::new();
     let mut collect_elems = Vec::new();
-    let start_time = Instant::now();
     for i in 0..num_queries {
         let mut elems = Vec::<(F, F)>::with_capacity(num_queries);
         elems.push((F::ZERO, F::ZERO));
@@ -2141,8 +2044,6 @@ where
         merkle_paths4.push(merkle_paths);
         collect_elems.push(elems);
     }
-    println!("time for authentications {:?}", start_time.elapsed());
-    let start_time = Instant::now();
     (0..num_queries).into_par_iter().for_each(|i| {
         authenticate_merkle_path::<F, H>(
             2 * queries[i],
@@ -2196,18 +2097,15 @@ where
             let c = c1 + challenges[iter - 1] * c2;
             if query_idx % 2 == 0 {
                 if c != elems[iter].0 {
-                    println!("Iter {iter}");
                     panic!("ORACLES INCONSISTENT!");
                 }
             } else {
                 if c != elems[iter].1 {
-                    println!("Iter {iter}");
                     panic!("ORACLES INCONSISTENT!");
                 }
             }
         });
     });
-    println!("authenticate time {:?}", start_time.elapsed());
     Ok(())
 }
 
@@ -2279,7 +2177,7 @@ fn authenticate_merkle_path<F: PrimeField, H: Hash>(
         assert_eq!(h_1, h_2);
         assert_eq!(h_2, h_3);
         if h_1 != h_2 {
-            println!("ERROR in Merkle path opening!");
+            panic!("ERROR in Merkle path opening!");
         }
     }
     Ok(())
@@ -2451,10 +2349,8 @@ mod test {
         let mut a = Fr::ZERO;
         for i in 0..16 {
             let temp = eq(i, &b);
-            println!("{:?}, {:?}", temp, -temp);
             a += temp;
         }
-        println!("{:?}", a);
     }
 
     #[test]
@@ -2470,29 +2366,6 @@ mod test {
                 vec![Fr::ZERO; params.brakedown_codeword_len - params.brakedown_row_len];
                 params.brakedown_codeword_len
             ];
-
-        println!(
-            "parity check matrix sparsity = {}, row len = {}",
-            params.partity_check_matrix.row.len(),
-            (1 << num_vars) / params.brakedown_num_rows
-        );
-
-        // for i in 0..params.partity_check_matrix.row.len() {
-        //     let row = params.partity_check_matrix.row[i];
-        //     let col = params.partity_check_matrix.col[i];
-        //     parity_check_matrix[row][col] = params.partity_check_matrix.val[i];
-        // }
-
-        // let mut rng = ChaCha8Rng::from_entropy();
-        // let mut msg = vec![Fr::random(&mut rng); params.brakedown_row_len];
-        // msg.extend(vec![Fr::ZERO; params.brakedown_codeword_len - params.brakedown_row_len]);
-        // params.brakedown.encode(&mut msg);
-        // let mut res = vec_matrix_prod(&msg, &parity_check_matrix);
-
-        // for i in 0..res.len() {
-        //     assert_eq!(Fr::ZERO, res[i]);
-        // }
-        //println!("{:?}", parity_check_matrix);
     }
 
     #[test]
@@ -2502,9 +2375,6 @@ mod test {
             point[i] = point[i - 1] + Fr::ONE;
         }
         let (x_0, x_1) = point_to_tensor(4, &point);
-        println!("x_0 = {:?}", x_0);
-        println!("{:?}, {:?}", -x_0[1], -x_0[2]);
-        println!("x_1 = {:?}", x_1);
     }
 
     #[test]
@@ -2513,43 +2383,7 @@ mod test {
             let batch_size = 1;
             let mut rng = ChaCha8Rng::from_entropy();
             let params = Pcs::setup(1 << num_vars, batch_size, rng).unwrap();
-
-            println!("Number of variables: {}", num_vars);
-            println!(
-                "Len of parity check matrix and its log = {} {}",
-                params.partity_check_matrix.row.len(),
-                params
-                    .partity_check_matrix
-                    .row
-                    .len()
-                    .next_power_of_two()
-                    .ilog2()
-            );
-            // println!(
-            //     "Blow up in poly sizes: {}, {}",
-            //     (1 << num_vars) / 256,
-            //     params.basefold_poly_size
-            // );
-            // println!(
-            //     "Blow up in num vars: {}, {}",
-            //     num_vars - 8,
-            //     params.basefold.num_vars
-            // );
         }
-
-        // println!(
-        //     "{}, {}, {}, {}",
-        //     params.num_vars,
-        //     params.brakedown_row_len,
-        //     params.brakedown_num_rows,
-        //     params.brakedown_codeword_len
-        // );
-        // println!(
-        //     "{}, {}",
-        //     params.basefold_poly_size, params.basefold.num_vars
-        // );
-        // println!("{}", params.trusted_commits.len());
-        //println!("{:?}", params.basefold);
     }
 
     #[test]
@@ -2560,18 +2394,6 @@ mod test {
 
         let params = Pcs::setup(1 << num_vars, batch_size, rng).unwrap();
         let (pp, vp) = Pcs::trim(&params, 1 << num_vars, 1).unwrap();
-        println!(
-            "{}, {}, {}, {}",
-            pp.num_vars,
-            pp.brakedown.row_len(),
-            pp.brakedown_num_rows,
-            pp.num_brakedown_queries
-        );
-        //println!("{:?}", params.brakedown);
-        println!(
-            "{}, {}, {}, {}",
-            vp.num_vars, vp.brakedown_row_len, vp.brakedown_codeword_len, vp.brakedown_num_rows
-        );
     }
 
     #[test]
@@ -2586,10 +2408,6 @@ mod test {
         let mut rng = ChaCha8Rng::from_entropy();
         let poly = MultilinearPolynomial::<Fr>::new(vec![Fr::random(&mut rng); 1 << num_vars]);
         let comm = Pcs::commit(&pp, &poly).unwrap();
-        println!("Commit done.");
-        //println!("{:?}", poly.evals());
-        //println!("{}", comm.rows.len());
-        //println!("{:?}", comm.rows);
     }
 
     #[test]

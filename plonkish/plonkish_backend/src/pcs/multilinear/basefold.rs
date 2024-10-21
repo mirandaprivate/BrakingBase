@@ -237,9 +237,6 @@ where
         let log_rate = V::get_rate();
         let mut test_rng = ChaCha8Rng::from_entropy();
         let (table_w_weights, table) = get_table_aes(poly_size, log_rate, &mut test_rng);
-        // for i in 0..10 {
-        //     println!("{:?}", table_w_weights[i]);
-        // }
         let mut rs_basecode = false;
         if V::get_rs_basecode() == true && V::get_basecode_rounds() > 0 {
             rs_basecode = true;
@@ -676,7 +673,6 @@ where
         let all_qs = transcript.read_field_elements(num_queries).unwrap();
 
         size = size + (num_queries - 2) * field_size;
-        //        println!("size for all iop queries {:?}", size);
 
         let i_qs = all_qs.chunks((vp.num_rounds + 1) * 2).collect_vec();
 
@@ -1441,11 +1437,9 @@ fn test_sumcheck() {
     };
     let now = Instant::now();
     let coeffs1 = p_i(&evals, &eq);
-    //    println!("original {:?}", now.elapsed());
 
     let now = Instant::now();
     let coeffs2 = parallel_pi(&evals, &eq);
-    //    println!("new {:?}", now.elapsed());
     assert_eq!(coeffs1, coeffs2);
 }
 
