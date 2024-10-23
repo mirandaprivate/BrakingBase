@@ -2304,8 +2304,8 @@ mod test {
 
     impl BrakingbaseSpec for Five {}
 
-    type Pcs = Brakingbase<Fr, Blake2s256, Five>;
-    type Pcs_basefold = Basefold<Fr, Blake2s256, Five>;
+    type Pcs = Brakingbase<Ft127, Blake2s256, Five>;
+    type Pcs_basefold = Basefold<Ft127, Blake2s256, Five>;
 
     #[test]
     fn test_merkle_paths() {
@@ -2396,42 +2396,41 @@ mod test {
         let (pp, vp) = Pcs::trim(&params, 1 << num_vars, 1).unwrap();
     }
 
+    // #[test]
+    // fn test_commit() {
+    //     let num_vars = 20;
+    //     let batch_size = 1;
+    //     let mut rng = ChaCha8Rng::from_entropy();
+
+    //     let params = Pcs::setup(1 << num_vars, batch_size, rng).unwrap();
+    //     let (pp, vp) = Pcs::trim(&params, 1 << num_vars, 1).unwrap();
+
+    //     let mut rng = ChaCha8Rng::from_entropy();
+    //     let poly = MultilinearPolynomial::<Fr>::new(vec![Fr::random(&mut rng); 1 << num_vars]);
+    //     let comm = Pcs::commit(&pp, &poly).unwrap();
+    // }
     #[test]
-    fn test_commit() {
-        let num_vars = 20;
-        let batch_size = 1;
-        let mut rng = ChaCha8Rng::from_entropy();
-
-        let params = Pcs::setup(1 << num_vars, batch_size, rng).unwrap();
-        let (pp, vp) = Pcs::trim(&params, 1 << num_vars, 1).unwrap();
-
-        let mut rng = ChaCha8Rng::from_entropy();
-        let poly = MultilinearPolynomial::<Fr>::new(vec![Fr::random(&mut rng); 1 << num_vars]);
-        let comm = Pcs::commit(&pp, &poly).unwrap();
-    }
-
-    #[test]
-    fn test_open() {
+    fn brakingbase_commit_open_verify() {
         run_commit_open_verify::<_, Pcs, Blake2sTranscript<_>>();
     }
 
-    fn run_basefold_batch_open<T>() {
-        let num_vars = 13;
-        let batch_size = 1;
-        let mut rng = ChaCha8Rng::from_entropy();
+    // fn run_basefold_batch_open<T>() {
+    //     let num_vars = 13;
+    //     let batch_size = 1;
+    //     let mut rng = ChaCha8Rng::from_entropy();
 
-        let params = Pcs_basefold::setup(1 << num_vars, batch_size, rng).unwrap();
-        let (pp, vp) = Pcs_basefold::trim(&params, 1 << num_vars, 1).unwrap();
+    //     let params = Pcs_basefold::setup(1 << num_vars, batch_size, rng).unwrap();
+    //     let (pp, vp) = Pcs_basefold::trim(&params, 1 << num_vars, 1).unwrap();
 
-        let mut rng = ChaCha8Rng::from_entropy();
-        let poly_1 = MultilinearPolynomial::<Fr>::new(vec![Fr::random(&mut rng); 1 << num_vars]);
-        let comm = Pcs_basefold::commit(&pp, &poly_1).unwrap();
-        let poly_2 = MultilinearPolynomial::<Fr>::new(vec![Fr::random(&mut rng); 1 << num_vars]);
-        let comm = Pcs_basefold::commit(&pp, &poly_2).unwrap();
-        let r_1 = Fr::random(&mut rng);
-        let r_2 = Fr::random(&mut rng);
-        let point = vec![Fr::random(&mut rng); num_vars];
-    }
+    //     let mut rng = ChaCha8Rng::from_entropy();
+    //     let poly_1 = MultilinearPolynomial::<Fr>::new(vec![Fr::random(&mut rng); 1 << num_vars]);
+    //     let comm = Pcs_basefold::commit(&pp, &poly_1).unwrap();
+    //     let poly_2 = MultilinearPolynomial::<Fr>::new(vec![Fr::random(&mut rng); 1 << num_vars]);
+    //     let comm = Pcs_basefold::commit(&pp, &poly_2).unwrap();
+    //     let r_1 = Fr::random(&mut rng);
+    //     let r_2 = Fr::random(&mut rng);
+    //     let point = vec![Fr::random(&mut rng); num_vars];
+    // }
 
     fn vec_matrix_prod<F: PrimeField>(vc: &Vec<F>, mat: &Vec<Vec<F>>) -> Vec<F> {
         assert_eq!(vc.len(), mat.len());

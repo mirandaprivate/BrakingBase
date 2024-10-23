@@ -241,9 +241,13 @@ where
         if V::get_rs_basecode() == true && V::get_basecode_rounds() > 0 {
             rs_basecode = true;
         }
+        // Number of queries for 10, ..., 26 variables.
+        let num_verifier_queries = [
+            296, 308, 322, 336, 351, 367, 384, 403, 423, 444, 467, 492, 520, 550, 585, 621, 664,
+        ];
         Ok(BasefoldParams {
             log_rate: log_rate,
-            num_verifier_queries: V::get_reps(),
+            num_verifier_queries: num_verifier_queries[log2_strict(poly_size) - 10],
             num_vars: log2_strict(poly_size),
             num_rounds: Some(log2_strict(poly_size) - V::get_basecode_rounds()),
             table_w_weights: table_w_weights,

@@ -359,8 +359,8 @@ mod test {
             + InMemoryTranscript<Param = ()>,
     {
         // Setup
-        println!("k     Commit_time     Prover_time     Proof_size      Verify_time");
-        for num_vars in 10..12 {
+        for num_vars in 13..26 {
+            println!("k     Commit_time     Prover_time     Proof_size      Verify_time");
             print!("{:?}", num_vars);
             let (pp, vp) = {
                 let mut rng = OsRng;
@@ -368,7 +368,7 @@ mod test {
                 let param = Pcs::setup(poly_size, 1, &mut rng).unwrap();
                 Pcs::trim(&param, poly_size, 1).unwrap()
             };
-            for _ in 0..2 {
+            for _ in 0..5 {
                 // Commit and open
                 let proof = {
                     let mut transcript = T::new(());
