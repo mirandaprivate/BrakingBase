@@ -464,13 +464,6 @@ where
         //TODO 2: Realise H(X,u) vector, that is, MLE of the matrix H with Y coordinates replaced by u. This is now a polynomial in X variables.
         let mut h = evaluate_H(&pp.parity_check_matrix, &u, pp.brakedown.codeword_len());
 
-        let mut temp = (0..h.len())
-            .into_par_iter()
-            .fold_with(F::ZERO, |acc, i| acc + (h[i] * p_p_prime[i]))
-            .reduce_with(|acc, val| acc + val)
-            .unwrap();
-
-        temp = temp - evaluate_poly(&p_p_prime[row_len..2 * row_len].to_vec(), &u);
         h.resize(2 * row_len, F::ZERO);
 
         let small_p_p_prime = p_p_prime[0..2 * row_len].to_vec();
@@ -559,7 +552,7 @@ where
         //Sample two random points gamma, tau.
         let gamma_tau = transcript.squeeze_challenges(2);
 
-        let mut h_col = vec![F::ZERO; pp.parity_check_matrix.col.len()];
+        //let mut h_col = vec![F::ZERO; pp.parity_check_matrix.col.len()];
 
         let mut h_row: Vec<F> = pp
             .parity_check_matrix
@@ -693,7 +686,6 @@ where
         //Extended random points for p+p' corresponding to x0;
         let mut p_p_prime_rp_x0 =
             vec![F::ZERO; second_sum_check_random_points.len() - 1 - x_1.len().ilog2() as usize];
-        // Shouldn't the above be x_0.len().ilog2()?
         p_p_prime_rp_x0.push(F::ZERO);
 
         let mut point_clone = point.to_vec();
@@ -1081,7 +1073,7 @@ where
 
         /*SECOND SUM_CHECK VERIFICATION */
         let mut sum_check_val = h_eval;
-        //TODO (Bhargav): Passes modulo the sum_check_rounds. Needs to be determined. The expression does not hold for number of vars >13.
+
         let sum_check_rounds = vp.basefold_poly_size.ilog2();
         let mut second_sum_check_random_points = vec![F::ZERO; sum_check_rounds as usize];
         for i in 0..sum_check_rounds as usize {
@@ -1252,9 +1244,7 @@ where
             &vp.trusted_commit,
             &evals,
             transcript,
-        );
-
-        Ok(())
+        )
     }
 
     fn batch_verify<'a>(
