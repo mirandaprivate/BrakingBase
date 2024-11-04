@@ -358,8 +358,12 @@ mod test {
             + TranscriptWrite<Pcs::CommitmentChunk, F>
             + InMemoryTranscript<Param = ()>,
     {
+        let mut commit_time_sum = 0.0;
+        let mut prover_time_sum = 0.0;
+        let mut verifier_time_sum = 0.0;
+        let mut proof_size = 0.0;
         // Setup
-        for num_vars in 13..26 {
+        for num_vars in 20..28 {
             println!("k     Commit_time     Prover_time     Proof_size      Verify_time");
             print!("{:?}", num_vars);
             let (pp, vp) = {
@@ -368,7 +372,7 @@ mod test {
                 let param = Pcs::setup(poly_size, 1, &mut rng).unwrap();
                 Pcs::trim(&param, poly_size, 1).unwrap()
             };
-            for _ in 0..5 {
+            for _ in 0..10 {
                 // Commit and open
                 let proof = {
                     let mut transcript = T::new(());
@@ -377,7 +381,9 @@ mod test {
 
                     let now = Instant::now();
                     let comm = Pcs::commit_and_write(&pp, &poly, &mut transcript).unwrap();
-                    print!("      {:?}", now.elapsed());
+                    let elapsed = now.elapsed();
+                    print!("      {:?}", elapsed);
+                    commit_time_sum += elapsed.subsec_millis() as f64;
 
                     let point = transcript.squeeze_challenges(num_vars);
                     // let eval = poly.evaluate(point.as_slice());
@@ -386,13 +392,17 @@ mod test {
                     let now2 = Instant::now();
 
                     Pcs::open(&pp, &poly, &comm, &point, &eval, &mut transcript);
-                    print!("     {:?}", now2.elapsed());
+                    let elapsed = now.elapsed();
+                    print!("     {:?}", elapsed);
+                    prover_time_sum += elapsed.subsec_millis() as f64;
 
                     transcript.into_proof()
                 };
                 // Verify
-                print!("       {}KB", proof.len() / 1024);
-                let start_time = Instant::now();
+                let size = proof.len() as f64 / 1024.0;
+                print!("       {}KB", size);
+                proof_size += size;
+                let now = Instant::now();
                 let result = {
                     let mut transcript = T::from_proof((), proof.as_slice());
                     Pcs::verify(
@@ -403,10 +413,17 @@ mod test {
                         &mut transcript,
                     )
                 };
-                print!("         {:?}", start_time.elapsed());
+                let elapsed = now.elapsed();
+                print!("         {:?}", elapsed);
+                verifier_time_sum += elapsed.subsec_millis() as f64;
                 assert_eq!(result, Ok(()));
                 println!()
             }
+            println!("Averages: ");
+            println!("Commit time: {} ms", commit_time_sum / 10.0);
+            println!("Prover time: {} ms", prover_time_sum / 10.0);
+            println!("Proof size: {} KB", proof_size / 10.0);
+            println!("Verifier time: {} ms", verifier_time_sum / 10.0);
         }
     }
 

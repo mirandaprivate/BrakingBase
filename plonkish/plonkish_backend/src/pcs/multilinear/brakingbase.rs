@@ -413,6 +413,7 @@ where
         let num_rows = pp.brakedown_num_rows;
         let codeword_len = pp.brakedown.codeword_len();
         let row_len = pp.brakedown.row_len();
+
         let basefold_poly_size = pp.basefold_poly_size;
         let (mut x_0, mut x_1) = point_to_tensor_for_commit(num_rows, point);
         let mut combined_codeword = vec![F::ZERO; codeword_len];
@@ -2214,6 +2215,7 @@ mod test {
     use crate::pcs::multilinear::basefold::Type1Polynomial;
     use crate::pcs::PolynomialCommitmentScheme;
     use crate::util::ff_255::ft127::Ft127;
+    use crate::util::goldilocksMont::GoldilocksMont;
     use crate::util::transcript::{
         self, FieldTranscript, FieldTranscriptRead, FieldTranscriptWrite, InMemoryTranscript,
         TranscriptRead, TranscriptWrite,
@@ -2294,8 +2296,8 @@ mod test {
 
     impl BrakingbaseSpec for Five {}
 
-    type Pcs = Brakingbase<Ft127, Blake2s256, Five>;
-    type Pcs_basefold = Basefold<Ft127, Blake2s256, Five>;
+    type Pcs = Brakingbase<GoldilocksMont, Blake2s256, Five>;
+    type Pcs_basefold = Basefold<GoldilocksMont, Blake2s256, Five>;
 
     #[test]
     fn test_merkle_paths() {
