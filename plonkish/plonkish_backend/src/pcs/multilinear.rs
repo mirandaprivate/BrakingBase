@@ -358,12 +358,12 @@ mod test {
             + TranscriptWrite<Pcs::CommitmentChunk, F>
             + InMemoryTranscript<Param = ()>,
     {
-        let mut commit_time_sum = 0.0;
-        let mut prover_time_sum = 0.0;
-        let mut verifier_time_sum = 0.0;
-        let mut proof_size = 0.0;
         // Setup
         for num_vars in 20..28 {
+            let mut commit_time_sum = 0.0;
+            let mut prover_time_sum = 0.0;
+            let mut verifier_time_sum = 0.0;
+            let mut proof_size = 0.0;
             println!("k     Commit_time     Prover_time     Proof_size      Verify_time");
             print!("{:?}", num_vars);
             let (pp, vp) = {
@@ -383,18 +383,18 @@ mod test {
                     let comm = Pcs::commit_and_write(&pp, &poly, &mut transcript).unwrap();
                     let elapsed = now.elapsed();
                     print!("      {:?}", elapsed);
-                    commit_time_sum += elapsed.subsec_millis() as f64;
+                    commit_time_sum += elapsed.as_millis() as f64;
 
                     let point = transcript.squeeze_challenges(num_vars);
                     // let eval = poly.evaluate(point.as_slice());
                     let eval = evaluate_poly(&poly.evals().to_vec(), &point);
                     transcript.write_field_element(&eval).unwrap();
-                    let now2 = Instant::now();
+                    let now = Instant::now();
 
                     Pcs::open(&pp, &poly, &comm, &point, &eval, &mut transcript);
                     let elapsed = now.elapsed();
                     print!("     {:?}", elapsed);
-                    prover_time_sum += elapsed.subsec_millis() as f64;
+                    prover_time_sum += elapsed.as_millis() as f64;
 
                     transcript.into_proof()
                 };
@@ -415,7 +415,7 @@ mod test {
                 };
                 let elapsed = now.elapsed();
                 print!("         {:?}", elapsed);
-                verifier_time_sum += elapsed.subsec_millis() as f64;
+                verifier_time_sum += elapsed.as_millis() as f64;
                 assert_eq!(result, Ok(()));
                 println!()
             }
