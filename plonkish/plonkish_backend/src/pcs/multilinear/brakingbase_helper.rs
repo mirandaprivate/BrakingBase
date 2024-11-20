@@ -4,38 +4,40 @@ use crate::util::{
     parallel::{num_threads, parallelize_iter},
 };
 use ff::PrimeField;
-use rayon::iter::{IndexedParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
+use rayon::iter::{
+    IndexedParallelIterator, IntoParallelIterator, IntoParallelRefMutIterator, ParallelIterator,
+};
 
 pub fn evaluate_poly<F: PrimeField>(coeffs: &Vec<F>, point: &Vec<F>) -> F {
-    let mut eval = F::ZERO;
     let tensor_point = point_to_tensor(1, point).1;
-    for i in 0..tensor_point.len() {
-        eval += coeffs[i] * tensor_point[i];
-    }
-    eval
+    coeffs
+        .into_par_iter()
+        .zip(tensor_point.into_par_iter())
+        .fold(|| F::ZERO, |acc, (coeff, tp)| acc + (*coeff * tp))
+        .reduce_with(|acc, val| acc + val)
+        .unwrap()
 }
 pub fn point_to_tensor<F: PrimeField>(num_rows: usize, point: &[F]) -> (Vec<F>, Vec<F>) {
     assert!(num_rows.is_power_of_two());
     let (hi, lo) = point.split_at(point.len() - (num_rows.ilog2() as usize));
-    let t_0 = eq_xy(lo); // switch t_0 and t_1
-    let t_1 = eq_xy(hi);
-    (t_0, t_1)
+    rayon::join(|| eq_xy(lo), || eq_xy(hi))
 }
 
 pub fn partial_evaluate_poly<F: PrimeField>(coeffs: &Vec<F>, point: &Vec<F>, skip: usize) -> F {
     let mut eval = F::ZERO;
     let tensor_point = point_to_tensor(1 << (point.len() - skip), point).0;
-    for i in 0..tensor_point.len() {
-        eval += coeffs[i] * tensor_point[i];
-    }
-    eval
+    coeffs
+        .into_par_iter()
+        .zip(tensor_point.into_par_iter())
+        .fold_with(F::ZERO, |acc, (coeff, tp)| acc + (*coeff * tp))
+        .reduce_with(|acc, val| acc + val)
+        .unwrap()
 }
 pub fn eq<F: PrimeField>(mut idx: usize, point: &Vec<F>) -> F {
     let mut res = F::ONE;
     for i in 1..=point.len() {
         let bit = idx - ((idx >> 1) << 1);
-        let f_bit = F::try_from(bit as u64).unwrap();
-        //assert_ne!(point[point.len() - i], F::ZERO);
+        let f_bit = F::from(bit as u64);
         res *=
             f_bit * point[point.len() - i] + (F::ONE - f_bit) * (F::ONE - point[point.len() - i]);
         idx = idx >> 1;
@@ -44,11 +46,9 @@ pub fn eq<F: PrimeField>(mut idx: usize, point: &Vec<F>) -> F {
 }
 pub fn fold_by_msb<F: PrimeField>(poly: &Vec<F>, point: F) -> Vec<F> {
     let halfsize = poly.len() >> 1;
-    let mut res = vec![F::ZERO; halfsize];
-    for k in 0..halfsize {
-        res[k] = poly[k] + (poly[k + halfsize] - poly[k]) * point;
-    }
-    res
+    (0..halfsize)
+        .map(|k| poly[k] + (poly[k + halfsize] - poly[k]) * point)
+        .collect()
 }
 
 pub fn par_fold_by_msb<F: PrimeField>(poly: &Vec<F>, point: F) -> Vec<F> {
@@ -96,9 +96,7 @@ pub fn eq_xy<F: PrimeField>(y: &[F]) -> Vec<F> {
 pub fn point_to_tensor_for_commit<F: PrimeField>(num_rows: usize, point: &[F]) -> (Vec<F>, Vec<F>) {
     assert!(num_rows.is_power_of_two());
     let (hi, lo) = point.split_at((num_rows.ilog2() as usize));
-    let x_0 = eq_xy(hi);
-    let x_1 = eq_xy(lo);
-    (x_0, x_1)
+    rayon::join(|| eq_xy(hi), || eq_xy(lo))
 }
 pub fn len_3_interpolate<F: PrimeField>(eval: &mut Vec<F>) {
     let t0 = eval[0] - eval[1].double();
@@ -116,10 +114,11 @@ pub fn eval<F: PrimeField>(p: &[F], x: F) -> F {
 }
 
 pub fn evaluate_eq<F: PrimeField>(r_x: &Vec<F>, r_y: &Vec<F>) -> F {
-    let mut temp = F::ONE;
     assert_eq!(r_x.len(), r_y.len());
-    for k in 0..r_y.len() {
-        temp = temp * ((r_x[k] * r_y[k]) + ((F::ONE - r_x[k]) * (F::ONE - r_y[k])));
-    }
-    temp
+    r_x.into_par_iter()
+        .zip_eq(r_y.into_par_iter())
+        .map(|(rx, ry)| *rx * *ry + (F::ONE - rx) * (F::ONE - ry))
+        .fold_with(F::ONE, |acc, val| acc * val)
+        .reduce_with(|acc, val| acc * val)
+        .unwrap()
 }

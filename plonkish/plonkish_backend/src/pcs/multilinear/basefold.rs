@@ -237,16 +237,17 @@ where
         let log_rate = V::get_rate();
         let mut test_rng = ChaCha8Rng::from_entropy();
         let (table_w_weights, table) = get_table_aes(poly_size, log_rate, &mut test_rng);
-        // for i in 0..10 {
-        //     println!("{:?}", table_w_weights[i]);
-        // }
         let mut rs_basecode = false;
         if V::get_rs_basecode() == true && V::get_basecode_rounds() > 0 {
             rs_basecode = true;
         }
+        // Number of queries for 10, ..., 26 variables.
+        let num_verifier_queries = [
+            296, 308, 322, 336, 351, 367, 384, 403, 423, 444, 467, 492, 520, 550, 585, 621, 664,
+        ];
         Ok(BasefoldParams {
             log_rate: log_rate,
-            num_verifier_queries: V::get_reps(),
+            num_verifier_queries: num_verifier_queries[log2_strict(poly_size) - 10],
             num_vars: log2_strict(poly_size),
             num_rounds: Some(log2_strict(poly_size) - V::get_basecode_rounds()),
             table_w_weights: table_w_weights,
@@ -318,7 +319,7 @@ where
         Ok(Self::Commitment {
             codeword: commitment,
             codeword_tree: tree,
-            bh_evals: bh_evals,
+            bh_evals,
         })
     }
 
@@ -676,7 +677,6 @@ where
         let all_qs = transcript.read_field_elements(num_queries).unwrap();
 
         size = size + (num_queries - 2) * field_size;
-        //        println!("size for all iop queries {:?}", size);
 
         let i_qs = all_qs.chunks((vp.num_rounds + 1) * 2).collect_vec();
 
@@ -1441,11 +1441,9 @@ fn test_sumcheck() {
     };
     let now = Instant::now();
     let coeffs1 = p_i(&evals, &eq);
-    //    println!("original {:?}", now.elapsed());
 
     let now = Instant::now();
     let coeffs2 = parallel_pi(&evals, &eq);
-    //    println!("new {:?}", now.elapsed());
     assert_eq!(coeffs1, coeffs2);
 }
 
@@ -2038,7 +2036,7 @@ mod test {
     }
 
     #[test]
-    fn commit_open_verify() {
+    fn basefold_commit_open_verify() {
         run_commit_open_verify::<_, Pcs, Blake2sTranscript<_>>();
     }
 

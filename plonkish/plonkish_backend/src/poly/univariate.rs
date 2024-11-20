@@ -85,12 +85,10 @@ impl<F: Field> Polynomial<F> for UnivariatePolynomial<F, CoefficientBasis> {
 
 impl<F: Field> UnivariatePolynomial<F, CoefficientBasis> {
     pub fn new(coeffs: Vec<F>) -> Self {
-	let og_length = coeffs.len();
-        let mut poly = Self {
+        let poly = Self {
             values: coeffs,
             _marker: PhantomData,
         };
-//        poly.truncate_leading_zeros();
         poly
     }
 

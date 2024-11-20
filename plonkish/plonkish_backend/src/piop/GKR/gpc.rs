@@ -1,9 +1,9 @@
-use ff::PrimeField;
 use crate::pcs::multilinear::brakingbase_helper::eq;
-
+use ff::PrimeField;
+use rayon::iter::IntoParallelIterator;
+use rayon::iter::ParallelIterator;
 pub fn grand_product_circuits<F: PrimeField>(
     len1: usize,
-    len2: usize,
     basefold_poly_size: usize,
     h: &Vec<F>,
     h_erow_ecol: &Vec<F>,
@@ -27,6 +27,7 @@ pub fn grand_product_circuits<F: PrimeField>(
                 let mut w_init_circuit_layers = Vec::new();
                 let mut s_circuit_layers = Vec::new();
                 let (w_init, s): (Vec<F>, Vec<F>) = (0..len1)
+                    .into_par_iter()
                     .map(|i| {
                         let term =
                             F::from_u128(i as u128) + gamma_tau[0] * eq(i, &eq_data) - gamma_tau[1];
@@ -39,6 +40,7 @@ pub fn grand_product_circuits<F: PrimeField>(
                 (1..depth1 + 1).for_each(|k| {
                     let layer_size = 1 << (depth1 - k);
                     let (temp_w_init, temp_s): (Vec<F>, Vec<F>) = (0..layer_size)
+                        .into_par_iter()
                         .map(|i| {
                             (
                                 w_init_circuit_layers[k - 1][2 * i]
@@ -53,21 +55,15 @@ pub fn grand_product_circuits<F: PrimeField>(
                 (w_init_circuit_layers, s_circuit_layers)
             },
             || {
-                let mut w_update = vec![F::ZERO; basefold_poly_size];
-                let mut r = vec![F::ZERO; basefold_poly_size];
+                let (w_update, r): (Vec<F>, Vec<F>) = (0..basefold_poly_size)
+                    .into_par_iter()
+                    .map(|i| {
+                        let term = h[i] + gamma_tau[0] * h_erow_ecol[i] + gamma_square * read_ts[i]
+                            - gamma_tau[1];
+                        (term + gamma_square, term)
+                    })
+                    .collect();
 
-                for i in 0..len2 {
-                    let term = h[i] + gamma_tau[0] * h_erow_ecol[i] + gamma_square * read_ts[i]
-                        - gamma_tau[1];
-                    r[i] = term;
-                    w_update[i] = term + gamma_square
-                }
-                for i in len2..basefold_poly_size {
-                    let term = h[0] + gamma_tau[0] * h_erow_ecol[0] + gamma_square * read_ts[i]
-                        - gamma_tau[1];
-                    r[i] = term;
-                    w_update[i] = term + gamma_square;
-                }
                 let mut r_circuit_layers = Vec::new();
                 let mut w_update_circuit_layers = Vec::new();
 
@@ -77,6 +73,7 @@ pub fn grand_product_circuits<F: PrimeField>(
                 (1..depth2 + 1).for_each(|k| {
                     let layer_size = 1 << (depth2 - k);
                     let (temp_w_update, temp_r): (Vec<F>, Vec<F>) = (0..layer_size)
+                        .into_par_iter()
                         .map(|i| {
                             (
                                 w_update_circuit_layers[k - 1][2 * i]

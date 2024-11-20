@@ -343,13 +343,11 @@ mod test {
         let param = Pcs::setup(poly_size, 1, &mut rng).unwrap();
 
         let (pp, vp) = Pcs::trim(&param, poly_size, 1).unwrap();
-        println!("before commit");
         let comm = Pcs::commit_and_write(&pp, &poly, &mut transcript).unwrap();
         let point = transcript.squeeze_challenges(num_vars);
         let eval = poly.evaluate(point.as_slice());
         Pcs::open(&pp, &poly, &comm, &point, &eval, &mut transcript).unwrap();
         let proof = transcript.into_proof();
-        println!("transcript commit len {:?}", proof.len() * 8);
     }
 
     pub(super) fn run_commit_open_verify<F, Pcs, T>()
@@ -360,51 +358,72 @@ mod test {
             + TranscriptWrite<Pcs::CommitmentChunk, F>
             + InMemoryTranscript<Param = ()>,
     {
-        for num_vars in 24..25 {
-            println!("k {:?}", num_vars);
-            // Setup
+        // Setup
+        for num_vars in 20..28 {
+            let mut commit_time_sum = 0.0;
+            let mut prover_time_sum = 0.0;
+            let mut verifier_time_sum = 0.0;
+            let mut proof_size = 0.0;
+            println!("k     Commit_time     Prover_time     Proof_size      Verify_time");
+            print!("{:?}", num_vars);
             let (pp, vp) = {
                 let mut rng = OsRng;
                 let poly_size = 1 << num_vars;
                 let param = Pcs::setup(poly_size, 1, &mut rng).unwrap();
-                println!("before trim");
                 Pcs::trim(&param, poly_size, 1).unwrap()
             };
-            println!("after trim");
-            // Commit and open
-            let proof = {
-                let mut transcript = T::new(());
-                let poly = MultilinearPolynomial::rand(num_vars, OsRng);
+            for _ in 0..10 {
+                // Commit and open
+                let proof = {
+                    let mut transcript = T::new(());
+                    let poly = MultilinearPolynomial::rand(num_vars, OsRng);
+                    let now = Instant::now();
+
+                    let now = Instant::now();
+                    let comm = Pcs::commit_and_write(&pp, &poly, &mut transcript).unwrap();
+                    let elapsed = now.elapsed();
+                    print!("      {:?}", elapsed);
+                    commit_time_sum += elapsed.as_millis() as f64;
+
+                    let point = transcript.squeeze_challenges(num_vars);
+                    // let eval = poly.evaluate(point.as_slice());
+                    let eval = evaluate_poly(&poly.evals().to_vec(), &point);
+                    transcript.write_field_element(&eval).unwrap();
+                    let now = Instant::now();
+
+                    Pcs::open(&pp, &poly, &comm, &point, &eval, &mut transcript);
+                    let elapsed = now.elapsed();
+                    print!("     {:?}", elapsed);
+                    prover_time_sum += elapsed.as_millis() as f64;
+
+                    transcript.into_proof()
+                };
+                // Verify
+                let size = proof.len() as f64 / 1024.0;
+                print!("       {}KB", size);
+                proof_size += size;
                 let now = Instant::now();
-
-                let now = Instant::now();
-                let comm = Pcs::commit_and_write(&pp, &poly, &mut transcript).unwrap();
-                println!("commit time {:?}", now.elapsed());
-
-                let point = transcript.squeeze_challenges(num_vars);
-                // let eval = poly.evaluate(point.as_slice());
-                let eval = evaluate_poly(&poly.evals().to_vec(), &point);
-                transcript.write_field_element(&eval).unwrap();
-                let now2 = Instant::now();
-
-                Pcs::open(&pp, &poly, &comm, &point, &eval, &mut transcript);
-                println!("proximity time {:?}", now2.elapsed());
-
-                transcript.into_proof()
-            };
-            // Verify
-            println!("Proof size = {} KB", proof.len() / 1024);
-            let result = {
-                let mut transcript = T::from_proof((), proof.as_slice());
-                Pcs::verify(
-                    &vp,
-                    &Pcs::read_commitment(&vp, &mut transcript).unwrap(),
-                    &transcript.squeeze_challenges(num_vars),
-                    &transcript.read_field_element().unwrap(),
-                    &mut transcript,
-                )
-            };
-            assert_eq!(result, Ok(()));
+                let result = {
+                    let mut transcript = T::from_proof((), proof.as_slice());
+                    Pcs::verify(
+                        &vp,
+                        &Pcs::read_commitment(&vp, &mut transcript).unwrap(),
+                        &transcript.squeeze_challenges(num_vars),
+                        &transcript.read_field_element().unwrap(),
+                        &mut transcript,
+                    )
+                };
+                let elapsed = now.elapsed();
+                print!("         {:?}", elapsed);
+                verifier_time_sum += elapsed.as_millis() as f64;
+                assert_eq!(result, Ok(()));
+                println!()
+            }
+            println!("Averages: ");
+            println!("Commit time: {} ms", commit_time_sum / 10.0);
+            println!("Prover time: {} ms", prover_time_sum / 10.0);
+            println!("Proof size: {} KB", proof_size / 10.0);
+            println!("Verifier time: {} ms", verifier_time_sum / 10.0);
         }
     }
 
@@ -464,7 +483,6 @@ mod test {
                     .unwrap();
                 let now = Instant::now();
                 Pcs::batch_open(&pp, &polys, &comms, &points, &evals, &mut transcript).unwrap();
-                println!("batch open {:?}", now.elapsed());
                 transcript.into_proof()
             };
             // Batch verify
@@ -509,7 +527,6 @@ mod test {
             let mut rng = OsRng;
             let poly_size = 1 << num_vars;
             let param = Pcs::setup(poly_size, 1, &mut rng).unwrap();
-            println!("before trim");
             Pcs::trim(&param, poly_size, 1).unwrap()
         };
 
