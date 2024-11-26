@@ -1,7 +1,7 @@
 use benchmark::{
     espresso,
     halo2::{AggregationCircuit, Sha256Circuit},
-    BasefoldParams::*
+    BasefoldParams::*,
 };
 use espresso_hyperplonk::{prelude::MockCircuit, HyperPlonkSNARK};
 use espresso_subroutines::{MultilinearKzgPCS, PolyIOP, PolynomialCommitmentScheme};
@@ -18,16 +18,20 @@ use itertools::Itertools;
 use plonkish_backend::{
     backend::{self, PlonkishBackend, PlonkishCircuit},
     frontend::halo2::{circuit::VanillaPlonk, CircuitExt, Halo2Circuit},
-    halo2_curves::{bn256::{Bn256, Fr}, secp256k1::Fp},
+    halo2_curves::{
+        bn256::{Bn256, Fr},
+        secp256k1::Fp,
+    },
     pcs::multilinear,
     util::{
-        end_timer, start_timer,
+        end_timer,
+        goldilocksMont::GoldilocksMont,
+        hash::{Blake2s, Blake2s256},
+        mersenne_61_mont::Mersenne61Mont,
+        new_fields::{Mersenne127, Mersenne61},
+        start_timer,
         test::std_rng,
-        transcript::{InMemoryTranscript, Blake2sTranscript},
-	hash::{Blake2s256,Blake2s},
-	new_fields::{Mersenne127,Mersenne61},
-	mersenne_61_mont::Mersenne61Mont,
-	goldilocksMont::GoldilocksMont
+        transcript::{Blake2sTranscript, InMemoryTranscript},
     },
 };
 
@@ -44,26 +48,24 @@ use std::{
 #[derive(Debug)]
 struct P {}
 
-impl plonkish_backend::pcs::multilinear::BasefoldExtParams for P{
-
-    fn get_rate() -> usize{
-	return 2;
+impl plonkish_backend::pcs::multilinear::BasefoldExtParams for P {
+    fn get_rate() -> usize {
+        return 2;
     }
 
-    fn get_basecode_rounds() -> usize{
-	return 2;
+    fn get_basecode_rounds() -> usize {
+        return 2;
     }
 
-    fn get_rs_basecode() -> bool{
-	true
+    fn get_rs_basecode() -> bool {
+        true
     }
 
-    fn get_reps() -> usize{
-	return 1000;
+    fn get_reps() -> usize {
+        return 1000;
     }
 }
 const OUTPUT_DIR: &str = "./bench_data/basefold_256_fri";
-
 
 fn main() {
     let (systems, circuit, k_range) = parse_args();
@@ -72,7 +74,7 @@ fn main() {
     k_range.for_each(|k| systems.iter().for_each(|system| system.bench(k, circuit)));
 }
 fn bench_hyperplonk_256<C: CircuitExt<Fr>>(k: usize) {
-    type Basefold = multilinear::Basefold<Fr,Blake2s256,BasefoldFri>;
+    type Basefold = multilinear::Basefold<Fr, Blake2s256, BasefoldFri>;
     type HyperPlonk = backend::hyperplonk::HyperPlonk<Basefold>;
 
     let circuit = C::rand(k, std_rng());
@@ -84,40 +86,39 @@ fn bench_hyperplonk_256<C: CircuitExt<Fr>>(k: usize) {
     let param = HyperPlonk::setup(&circuit_info, std_rng()).unwrap();
     end_timer(timer);
 
-
-
     let timer = start_timer(|| format!("hyperplonk_preprocess-{k}"));
     let (pp, vp) = HyperPlonk::preprocess(&param, &circuit_info).unwrap();
     end_timer(timer);
-
 
     let proof = sample(System::HyperPlonk, String::from("Fp - ecdsa"), k, || {
         let _timer = start_timer(|| format!("hyperplonk_prove-{k}"));
         let mut transcript = Blake2sTranscript::default();
         HyperPlonk::prove(&pp, &circuit, &mut transcript, std_rng()).unwrap();
         let proofs = transcript.into_proof();
-	proofs
+        proofs
     });
 
-
     let _timer = start_timer(|| format!("hyperplonk_verify-{k}"));
-    let accept = verifier_sample(System::HyperPlonk, String::from("fp_vanilla"),k, || {
+    let accept = verifier_sample(System::HyperPlonk, String::from("fp_vanilla"), k, || {
         let mut transcript = Blake2sTranscript::from_proof((), proof.as_slice());
         HyperPlonk::verify(&vp, instances, &mut transcript, std_rng()).is_ok()
-    });    
+    });
 
+    let mut t1 = Blake2sTranscript::from_proof((), proof.as_slice());
+    let end_size = t1.into_proof().len();
 
-    let mut t1 = Blake2sTranscript::from_proof((),proof.as_slice());
-    let end_size = t1.into_proof().len();    
+    writeln!(
+        &mut (System::HyperPlonk).size_output(),
+        "{k} : {:?}",
+        (end_size) * 8
+    )
+    .unwrap();
 
-    writeln!(&mut (System::HyperPlonk).size_output(), "{k} : {:?}", (end_size)*8).unwrap();
-    
     assert!(accept);
 }
 
-
 fn bench_hyperplonk_10<C: CircuitExt<GoldilocksMont>>(k: usize) {
-    type Basefold = multilinear::Basefold<GoldilocksMont,Blake2s256,Ten>;
+    type Basefold = multilinear::Basefold<GoldilocksMont, Blake2s256, Ten>;
     type HyperPlonk = backend::hyperplonk::HyperPlonk<Basefold>;
 
     let circuit = C::rand(k, std_rng());
@@ -129,39 +130,39 @@ fn bench_hyperplonk_10<C: CircuitExt<GoldilocksMont>>(k: usize) {
     let param = HyperPlonk::setup(&circuit_info, std_rng()).unwrap();
     end_timer(timer);
 
-
-
     let timer = start_timer(|| format!("hyperplonk_preprocess-{k}"));
     let (pp, vp) = HyperPlonk::preprocess(&param, &circuit_info).unwrap();
     end_timer(timer);
-
 
     let proof = sample(System::HyperPlonk, String::from("Fp - ecdsa"), k, || {
         let _timer = start_timer(|| format!("hyperplonk_prove-{k}"));
         let mut transcript = Blake2sTranscript::default();
         HyperPlonk::prove(&pp, &circuit, &mut transcript, std_rng()).unwrap();
         let proofs = transcript.into_proof();
-	proofs
+        proofs
     });
 
-
     let _timer = start_timer(|| format!("hyperplonk_verify-{k}"));
-    let accept = verifier_sample(System::HyperPlonk, String::from("fp_vanilla"),k, || {
+    let accept = verifier_sample(System::HyperPlonk, String::from("fp_vanilla"), k, || {
         let mut transcript = Blake2sTranscript::from_proof((), proof.as_slice());
         HyperPlonk::verify(&vp, instances, &mut transcript, std_rng()).is_ok()
-    });    
+    });
 
+    let mut t1 = Blake2sTranscript::from_proof((), proof.as_slice());
+    let end_size = t1.into_proof().len();
 
-    let mut t1 = Blake2sTranscript::from_proof((),proof.as_slice());
-    let end_size = t1.into_proof().len();    
+    writeln!(
+        &mut (System::HyperPlonk).size_output(),
+        "{k} : {:?}",
+        (end_size) * 8
+    )
+    .unwrap();
 
-    writeln!(&mut (System::HyperPlonk).size_output(), "{k} : {:?}", (end_size)*8).unwrap();
-    
     assert!(accept);
 }
 
 fn bench_hyperplonk_11<C: CircuitExt<GoldilocksMont>>(k: usize) {
-    type Basefold = multilinear::Basefold<GoldilocksMont,Blake2s256,Eleven>;
+    type Basefold = multilinear::Basefold<GoldilocksMont, Blake2s256, Eleven>;
     type HyperPlonk = backend::hyperplonk::HyperPlonk<Basefold>;
 
     let circuit = C::rand(k, std_rng());
@@ -173,38 +174,38 @@ fn bench_hyperplonk_11<C: CircuitExt<GoldilocksMont>>(k: usize) {
     let param = HyperPlonk::setup(&circuit_info, std_rng()).unwrap();
     end_timer(timer);
 
-
-
     let timer = start_timer(|| format!("hyperplonk_preprocess-{k}"));
     let (pp, vp) = HyperPlonk::preprocess(&param, &circuit_info).unwrap();
     end_timer(timer);
-
 
     let proof = sample(System::HyperPlonk, String::from("Fp - ecdsa"), k, || {
         let _timer = start_timer(|| format!("hyperplonk_prove-{k}"));
         let mut transcript = Blake2sTranscript::default();
         HyperPlonk::prove(&pp, &circuit, &mut transcript, std_rng()).unwrap();
         let proofs = transcript.into_proof();
-	proofs
+        proofs
     });
 
-
     let _timer = start_timer(|| format!("hyperplonk_verify-{k}"));
-    let accept = verifier_sample(System::HyperPlonk, String::from("fp_vanilla"),k, || {
+    let accept = verifier_sample(System::HyperPlonk, String::from("fp_vanilla"), k, || {
         let mut transcript = Blake2sTranscript::from_proof((), proof.as_slice());
         HyperPlonk::verify(&vp, instances, &mut transcript, std_rng()).is_ok()
-    });    
+    });
 
+    let mut t1 = Blake2sTranscript::from_proof((), proof.as_slice());
+    let end_size = t1.into_proof().len();
 
-    let mut t1 = Blake2sTranscript::from_proof((),proof.as_slice());
-    let end_size = t1.into_proof().len();    
+    writeln!(
+        &mut (System::HyperPlonk).size_output(),
+        "{:?}",
+        (end_size) * 8
+    )
+    .unwrap();
 
-    writeln!(&mut (System::HyperPlonk).size_output(), "{:?}", (end_size)*8).unwrap();
-    
     assert!(accept);
 }
 fn bench_hyperplonk_12<C: CircuitExt<GoldilocksMont>>(k: usize) {
-    type Basefold = multilinear::Basefold<GoldilocksMont,Blake2s256,Twelve>;
+    type Basefold = multilinear::Basefold<GoldilocksMont, Blake2s256, Twelve>;
     type HyperPlonk = backend::hyperplonk::HyperPlonk<Basefold>;
 
     let circuit = C::rand(k, std_rng());
@@ -216,38 +217,38 @@ fn bench_hyperplonk_12<C: CircuitExt<GoldilocksMont>>(k: usize) {
     let param = HyperPlonk::setup(&circuit_info, std_rng()).unwrap();
     end_timer(timer);
 
-
-
     let timer = start_timer(|| format!("hyperplonk_preprocess-{k}"));
     let (pp, vp) = HyperPlonk::preprocess(&param, &circuit_info).unwrap();
     end_timer(timer);
-
 
     let proof = sample(System::HyperPlonk, String::from("Fp - ecdsa"), k, || {
         let _timer = start_timer(|| format!("hyperplonk_prove-{k}"));
         let mut transcript = Blake2sTranscript::default();
         HyperPlonk::prove(&pp, &circuit, &mut transcript, std_rng()).unwrap();
         let proofs = transcript.into_proof();
-	proofs
+        proofs
     });
 
-
     let _timer = start_timer(|| format!("hyperplonk_verify-{k}"));
-    let accept = verifier_sample(System::HyperPlonk, String::from("fp_vanilla"),k, || {
+    let accept = verifier_sample(System::HyperPlonk, String::from("fp_vanilla"), k, || {
         let mut transcript = Blake2sTranscript::from_proof((), proof.as_slice());
         HyperPlonk::verify(&vp, instances, &mut transcript, std_rng()).is_ok()
-    });    
+    });
 
+    let mut t1 = Blake2sTranscript::from_proof((), proof.as_slice());
+    let end_size = t1.into_proof().len();
 
-    let mut t1 = Blake2sTranscript::from_proof((),proof.as_slice());
-    let end_size = t1.into_proof().len();    
+    writeln!(
+        &mut (System::HyperPlonk).size_output(),
+        "{k} : {:?}",
+        (end_size) * 8
+    )
+    .unwrap();
 
-    writeln!(&mut (System::HyperPlonk).size_output(), "{k} : {:?}", (end_size)*8).unwrap();
-    
     assert!(accept);
 }
 fn bench_hyperplonk_13<C: CircuitExt<GoldilocksMont>>(k: usize) {
-    type Basefold = multilinear::Basefold<GoldilocksMont,Blake2s256,Thirteen>;
+    type Basefold = multilinear::Basefold<GoldilocksMont, Blake2s256, Thirteen>;
     type HyperPlonk = backend::hyperplonk::HyperPlonk<Basefold>;
 
     let circuit = C::rand(k, std_rng());
@@ -259,38 +260,38 @@ fn bench_hyperplonk_13<C: CircuitExt<GoldilocksMont>>(k: usize) {
     let param = HyperPlonk::setup(&circuit_info, std_rng()).unwrap();
     end_timer(timer);
 
-
-
     let timer = start_timer(|| format!("hyperplonk_preprocess-{k}"));
     let (pp, vp) = HyperPlonk::preprocess(&param, &circuit_info).unwrap();
     end_timer(timer);
-
 
     let proof = sample(System::HyperPlonk, String::from("Fp - ecdsa"), k, || {
         let _timer = start_timer(|| format!("hyperplonk_prove-{k}"));
         let mut transcript = Blake2sTranscript::default();
         HyperPlonk::prove(&pp, &circuit, &mut transcript, std_rng()).unwrap();
         let proofs = transcript.into_proof();
-	proofs
+        proofs
     });
 
-
     let _timer = start_timer(|| format!("hyperplonk_verify-{k}"));
-    let accept = verifier_sample(System::HyperPlonk, String::from("fp_vanilla"),k, || {
+    let accept = verifier_sample(System::HyperPlonk, String::from("fp_vanilla"), k, || {
         let mut transcript = Blake2sTranscript::from_proof((), proof.as_slice());
         HyperPlonk::verify(&vp, instances, &mut transcript, std_rng()).is_ok()
-    });    
+    });
 
+    let mut t1 = Blake2sTranscript::from_proof((), proof.as_slice());
+    let end_size = t1.into_proof().len();
 
-    let mut t1 = Blake2sTranscript::from_proof((),proof.as_slice());
-    let end_size = t1.into_proof().len();    
+    writeln!(
+        &mut (System::HyperPlonk).size_output(),
+        "{k} : {:?}",
+        (end_size) * 8
+    )
+    .unwrap();
 
-    writeln!(&mut (System::HyperPlonk).size_output(), "{k} : {:?}", (end_size)*8).unwrap();
-    
     assert!(accept);
 }
 fn bench_hyperplonk_14<C: CircuitExt<GoldilocksMont>>(k: usize) {
-    type Basefold = multilinear::Basefold<GoldilocksMont,Blake2s256,Fourteen>;
+    type Basefold = multilinear::Basefold<GoldilocksMont, Blake2s256, Fourteen>;
     type HyperPlonk = backend::hyperplonk::HyperPlonk<Basefold>;
 
     let circuit = C::rand(k, std_rng());
@@ -302,38 +303,38 @@ fn bench_hyperplonk_14<C: CircuitExt<GoldilocksMont>>(k: usize) {
     let param = HyperPlonk::setup(&circuit_info, std_rng()).unwrap();
     end_timer(timer);
 
-
-
     let timer = start_timer(|| format!("hyperplonk_preprocess-{k}"));
     let (pp, vp) = HyperPlonk::preprocess(&param, &circuit_info).unwrap();
     end_timer(timer);
-
 
     let proof = sample(System::HyperPlonk, String::from("Fp - ecdsa"), k, || {
         let _timer = start_timer(|| format!("hyperplonk_prove-{k}"));
         let mut transcript = Blake2sTranscript::default();
         HyperPlonk::prove(&pp, &circuit, &mut transcript, std_rng()).unwrap();
         let proofs = transcript.into_proof();
-	proofs
+        proofs
     });
 
-
     let _timer = start_timer(|| format!("hyperplonk_verify-{k}"));
-    let accept = verifier_sample(System::HyperPlonk, String::from("fp_vanilla"),k, || {
+    let accept = verifier_sample(System::HyperPlonk, String::from("fp_vanilla"), k, || {
         let mut transcript = Blake2sTranscript::from_proof((), proof.as_slice());
         HyperPlonk::verify(&vp, instances, &mut transcript, std_rng()).is_ok()
-    });    
+    });
 
+    let mut t1 = Blake2sTranscript::from_proof((), proof.as_slice());
+    let end_size = t1.into_proof().len();
 
-    let mut t1 = Blake2sTranscript::from_proof((),proof.as_slice());
-    let end_size = t1.into_proof().len();    
+    writeln!(
+        &mut (System::HyperPlonk).size_output(),
+        "{k} : {:?}",
+        (end_size) * 8
+    )
+    .unwrap();
 
-    writeln!(&mut (System::HyperPlonk).size_output(), "{k} : {:?}", (end_size)*8).unwrap();
-    
     assert!(accept);
 }
 fn bench_hyperplonk_15<C: CircuitExt<GoldilocksMont>>(k: usize) {
-    type Basefold = multilinear::Basefold<GoldilocksMont,Blake2s256,Fifteen>;
+    type Basefold = multilinear::Basefold<GoldilocksMont, Blake2s256, Fifteen>;
     type HyperPlonk = backend::hyperplonk::HyperPlonk<Basefold>;
 
     let circuit = C::rand(k, std_rng());
@@ -345,38 +346,38 @@ fn bench_hyperplonk_15<C: CircuitExt<GoldilocksMont>>(k: usize) {
     let param = HyperPlonk::setup(&circuit_info, std_rng()).unwrap();
     end_timer(timer);
 
-
-
     let timer = start_timer(|| format!("hyperplonk_preprocess-{k}"));
     let (pp, vp) = HyperPlonk::preprocess(&param, &circuit_info).unwrap();
     end_timer(timer);
-
 
     let proof = sample(System::HyperPlonk, String::from("Fp - ecdsa"), k, || {
         let _timer = start_timer(|| format!("hyperplonk_prove-{k}"));
         let mut transcript = Blake2sTranscript::default();
         HyperPlonk::prove(&pp, &circuit, &mut transcript, std_rng()).unwrap();
         let proofs = transcript.into_proof();
-	proofs
+        proofs
     });
 
-
     let _timer = start_timer(|| format!("hyperplonk_verify-{k}"));
-    let accept = verifier_sample(System::HyperPlonk, String::from("fp_vanilla"),k, || {
+    let accept = verifier_sample(System::HyperPlonk, String::from("fp_vanilla"), k, || {
         let mut transcript = Blake2sTranscript::from_proof((), proof.as_slice());
         HyperPlonk::verify(&vp, instances, &mut transcript, std_rng()).is_ok()
-    });    
+    });
 
+    let mut t1 = Blake2sTranscript::from_proof((), proof.as_slice());
+    let end_size = t1.into_proof().len();
 
-    let mut t1 = Blake2sTranscript::from_proof((),proof.as_slice());
-    let end_size = t1.into_proof().len();    
+    writeln!(
+        &mut (System::HyperPlonk).size_output(),
+        "{k} : {:?}",
+        (end_size) * 8
+    )
+    .unwrap();
 
-    writeln!(&mut (System::HyperPlonk).size_output(), "{k} : {:?}", (end_size)*8).unwrap();
-    
     assert!(accept);
 }
 fn bench_hyperplonk_16<C: CircuitExt<GoldilocksMont>>(k: usize) {
-    type Basefold = multilinear::Basefold<GoldilocksMont,Blake2s256,Sixteen>;
+    type Basefold = multilinear::Basefold<GoldilocksMont, Blake2s256, Sixteen>;
     type HyperPlonk = backend::hyperplonk::HyperPlonk<Basefold>;
 
     let circuit = C::rand(k, std_rng());
@@ -388,38 +389,38 @@ fn bench_hyperplonk_16<C: CircuitExt<GoldilocksMont>>(k: usize) {
     let param = HyperPlonk::setup(&circuit_info, std_rng()).unwrap();
     end_timer(timer);
 
-
-
     let timer = start_timer(|| format!("hyperplonk_preprocess-{k}"));
     let (pp, vp) = HyperPlonk::preprocess(&param, &circuit_info).unwrap();
     end_timer(timer);
-
 
     let proof = sample(System::HyperPlonk, String::from("Fp - ecdsa"), k, || {
         let _timer = start_timer(|| format!("hyperplonk_prove-{k}"));
         let mut transcript = Blake2sTranscript::default();
         HyperPlonk::prove(&pp, &circuit, &mut transcript, std_rng()).unwrap();
         let proofs = transcript.into_proof();
-	proofs
+        proofs
     });
 
-
     let _timer = start_timer(|| format!("hyperplonk_verify-{k}"));
-    let accept = verifier_sample(System::HyperPlonk, String::from("fp_vanilla"),k, || {
+    let accept = verifier_sample(System::HyperPlonk, String::from("fp_vanilla"), k, || {
         let mut transcript = Blake2sTranscript::from_proof((), proof.as_slice());
         HyperPlonk::verify(&vp, instances, &mut transcript, std_rng()).is_ok()
-    });    
+    });
 
+    let mut t1 = Blake2sTranscript::from_proof((), proof.as_slice());
+    let end_size = t1.into_proof().len();
 
-    let mut t1 = Blake2sTranscript::from_proof((),proof.as_slice());
-    let end_size = t1.into_proof().len();    
+    writeln!(
+        &mut (System::HyperPlonk).size_output(),
+        "{k} : {:?}",
+        (end_size) * 8
+    )
+    .unwrap();
 
-    writeln!(&mut (System::HyperPlonk).size_output(), "{k} : {:?}", (end_size)*8).unwrap();
-    
     assert!(accept);
 }
 fn bench_hyperplonk_17<C: CircuitExt<GoldilocksMont>>(k: usize) {
-    type Basefold = multilinear::Basefold<GoldilocksMont,Blake2s256,Seventeen>;
+    type Basefold = multilinear::Basefold<GoldilocksMont, Blake2s256, Seventeen>;
     type HyperPlonk = backend::hyperplonk::HyperPlonk<Basefold>;
 
     let circuit = C::rand(k, std_rng());
@@ -431,38 +432,38 @@ fn bench_hyperplonk_17<C: CircuitExt<GoldilocksMont>>(k: usize) {
     let param = HyperPlonk::setup(&circuit_info, std_rng()).unwrap();
     end_timer(timer);
 
-
-
     let timer = start_timer(|| format!("hyperplonk_preprocess-{k}"));
     let (pp, vp) = HyperPlonk::preprocess(&param, &circuit_info).unwrap();
     end_timer(timer);
-
 
     let proof = sample(System::HyperPlonk, String::from("Fp - ecdsa"), k, || {
         let _timer = start_timer(|| format!("hyperplonk_prove-{k}"));
         let mut transcript = Blake2sTranscript::default();
         HyperPlonk::prove(&pp, &circuit, &mut transcript, std_rng()).unwrap();
         let proofs = transcript.into_proof();
-	proofs
+        proofs
     });
 
-
     let _timer = start_timer(|| format!("hyperplonk_verify-{k}"));
-    let accept = verifier_sample(System::HyperPlonk, String::from("fp_vanilla"),k, || {
+    let accept = verifier_sample(System::HyperPlonk, String::from("fp_vanilla"), k, || {
         let mut transcript = Blake2sTranscript::from_proof((), proof.as_slice());
         HyperPlonk::verify(&vp, instances, &mut transcript, std_rng()).is_ok()
-    });    
+    });
 
+    let mut t1 = Blake2sTranscript::from_proof((), proof.as_slice());
+    let end_size = t1.into_proof().len();
 
-    let mut t1 = Blake2sTranscript::from_proof((),proof.as_slice());
-    let end_size = t1.into_proof().len();    
+    writeln!(
+        &mut (System::HyperPlonk).size_output(),
+        "{k} : {:?}",
+        (end_size) * 8
+    )
+    .unwrap();
 
-    writeln!(&mut (System::HyperPlonk).size_output(), "{k} : {:?}", (end_size)*8).unwrap();
-    
     assert!(accept);
 }
 fn bench_hyperplonk_18<C: CircuitExt<GoldilocksMont>>(k: usize) {
-    type Basefold = multilinear::Basefold<GoldilocksMont,Blake2s256,Eighteen>;
+    type Basefold = multilinear::Basefold<GoldilocksMont, Blake2s256, Eighteen>;
     type HyperPlonk = backend::hyperplonk::HyperPlonk<Basefold>;
 
     let circuit = C::rand(k, std_rng());
@@ -474,38 +475,38 @@ fn bench_hyperplonk_18<C: CircuitExt<GoldilocksMont>>(k: usize) {
     let param = HyperPlonk::setup(&circuit_info, std_rng()).unwrap();
     end_timer(timer);
 
-
-
     let timer = start_timer(|| format!("hyperplonk_preprocess-{k}"));
     let (pp, vp) = HyperPlonk::preprocess(&param, &circuit_info).unwrap();
     end_timer(timer);
-
 
     let proof = sample(System::HyperPlonk, String::from("Fp - ecdsa"), k, || {
         let _timer = start_timer(|| format!("hyperplonk_prove-{k}"));
         let mut transcript = Blake2sTranscript::default();
         HyperPlonk::prove(&pp, &circuit, &mut transcript, std_rng()).unwrap();
         let proofs = transcript.into_proof();
-	proofs
+        proofs
     });
 
-
     let _timer = start_timer(|| format!("hyperplonk_verify-{k}"));
-    let accept = verifier_sample(System::HyperPlonk, String::from("fp_vanilla"),k, || {
+    let accept = verifier_sample(System::HyperPlonk, String::from("fp_vanilla"), k, || {
         let mut transcript = Blake2sTranscript::from_proof((), proof.as_slice());
         HyperPlonk::verify(&vp, instances, &mut transcript, std_rng()).is_ok()
-    });    
+    });
 
+    let mut t1 = Blake2sTranscript::from_proof((), proof.as_slice());
+    let end_size = t1.into_proof().len();
 
-    let mut t1 = Blake2sTranscript::from_proof((),proof.as_slice());
-    let end_size = t1.into_proof().len();    
+    writeln!(
+        &mut (System::HyperPlonk).size_output(),
+        "{k} : {:?}",
+        (end_size) * 8
+    )
+    .unwrap();
 
-    writeln!(&mut (System::HyperPlonk).size_output(), "{k} : {:?}", (end_size)*8).unwrap();
-    
     assert!(accept);
 }
 fn bench_hyperplonk_19<C: CircuitExt<GoldilocksMont>>(k: usize) {
-    type Basefold = multilinear::Basefold<GoldilocksMont,Blake2s256,Nineteen>;
+    type Basefold = multilinear::Basefold<GoldilocksMont, Blake2s256, Nineteen>;
     type HyperPlonk = backend::hyperplonk::HyperPlonk<Basefold>;
 
     let circuit = C::rand(k, std_rng());
@@ -517,38 +518,38 @@ fn bench_hyperplonk_19<C: CircuitExt<GoldilocksMont>>(k: usize) {
     let param = HyperPlonk::setup(&circuit_info, std_rng()).unwrap();
     end_timer(timer);
 
-
-
     let timer = start_timer(|| format!("hyperplonk_preprocess-{k}"));
     let (pp, vp) = HyperPlonk::preprocess(&param, &circuit_info).unwrap();
     end_timer(timer);
-
 
     let proof = sample(System::HyperPlonk, String::from("Fp - ecdsa"), k, || {
         let _timer = start_timer(|| format!("hyperplonk_prove-{k}"));
         let mut transcript = Blake2sTranscript::default();
         HyperPlonk::prove(&pp, &circuit, &mut transcript, std_rng()).unwrap();
         let proofs = transcript.into_proof();
-	proofs
+        proofs
     });
 
-
     let _timer = start_timer(|| format!("hyperplonk_verify-{k}"));
-    let accept = verifier_sample(System::HyperPlonk, String::from("fp_vanilla"),k, || {
+    let accept = verifier_sample(System::HyperPlonk, String::from("fp_vanilla"), k, || {
         let mut transcript = Blake2sTranscript::from_proof((), proof.as_slice());
         HyperPlonk::verify(&vp, instances, &mut transcript, std_rng()).is_ok()
-    });    
+    });
 
+    let mut t1 = Blake2sTranscript::from_proof((), proof.as_slice());
+    let end_size = t1.into_proof().len();
 
-    let mut t1 = Blake2sTranscript::from_proof((),proof.as_slice());
-    let end_size = t1.into_proof().len();    
+    writeln!(
+        &mut (System::HyperPlonk).size_output(),
+        "{k} : {:?}",
+        (end_size) * 8
+    )
+    .unwrap();
 
-    writeln!(&mut (System::HyperPlonk).size_output(), "{k} : {:?}", (end_size)*8).unwrap();
-    
     assert!(accept);
 }
 fn bench_hyperplonk_20<C: CircuitExt<GoldilocksMont>>(k: usize) {
-    type Basefold = multilinear::Basefold<GoldilocksMont,Blake2s256,Twenty>;
+    type Basefold = multilinear::Basefold<GoldilocksMont, Blake2s256, Twenty>;
     type HyperPlonk = backend::hyperplonk::HyperPlonk<Basefold>;
 
     let circuit = C::rand(k, std_rng());
@@ -560,38 +561,38 @@ fn bench_hyperplonk_20<C: CircuitExt<GoldilocksMont>>(k: usize) {
     let param = HyperPlonk::setup(&circuit_info, std_rng()).unwrap();
     end_timer(timer);
 
-
-
     let timer = start_timer(|| format!("hyperplonk_preprocess-{k}"));
     let (pp, vp) = HyperPlonk::preprocess(&param, &circuit_info).unwrap();
     end_timer(timer);
-
 
     let proof = sample(System::HyperPlonk, String::from("Fp - ecdsa"), k, || {
         let _timer = start_timer(|| format!("hyperplonk_prove-{k}"));
         let mut transcript = Blake2sTranscript::default();
         HyperPlonk::prove(&pp, &circuit, &mut transcript, std_rng()).unwrap();
         let proofs = transcript.into_proof();
-	proofs
+        proofs
     });
 
-
     let _timer = start_timer(|| format!("hyperplonk_verify-{k}"));
-    let accept = verifier_sample(System::HyperPlonk, String::from("fp_vanilla"),k, || {
+    let accept = verifier_sample(System::HyperPlonk, String::from("fp_vanilla"), k, || {
         let mut transcript = Blake2sTranscript::from_proof((), proof.as_slice());
         HyperPlonk::verify(&vp, instances, &mut transcript, std_rng()).is_ok()
-    });    
+    });
 
+    let mut t1 = Blake2sTranscript::from_proof((), proof.as_slice());
+    let end_size = t1.into_proof().len();
 
-    let mut t1 = Blake2sTranscript::from_proof((),proof.as_slice());
-    let end_size = t1.into_proof().len();    
+    writeln!(
+        &mut (System::HyperPlonk).size_output(),
+        "{k} : {:?}",
+        (end_size) * 8
+    )
+    .unwrap();
 
-    writeln!(&mut (System::HyperPlonk).size_output(), "{k} : {:?}", (end_size)*8).unwrap();
-    
     assert!(accept);
 }
 fn bench_hyperplonk_21<C: CircuitExt<GoldilocksMont>>(k: usize) {
-    type Basefold = multilinear::Basefold<GoldilocksMont,Blake2s256,TwentyOne>;
+    type Basefold = multilinear::Basefold<GoldilocksMont, Blake2s256, TwentyOne>;
     type HyperPlonk = backend::hyperplonk::HyperPlonk<Basefold>;
 
     let circuit = C::rand(k, std_rng());
@@ -603,38 +604,38 @@ fn bench_hyperplonk_21<C: CircuitExt<GoldilocksMont>>(k: usize) {
     let param = HyperPlonk::setup(&circuit_info, std_rng()).unwrap();
     end_timer(timer);
 
-
-
     let timer = start_timer(|| format!("hyperplonk_preprocess-{k}"));
     let (pp, vp) = HyperPlonk::preprocess(&param, &circuit_info).unwrap();
     end_timer(timer);
-
 
     let proof = sample(System::HyperPlonk, String::from("Fp - ecdsa"), k, || {
         let _timer = start_timer(|| format!("hyperplonk_prove-{k}"));
         let mut transcript = Blake2sTranscript::default();
         HyperPlonk::prove(&pp, &circuit, &mut transcript, std_rng()).unwrap();
         let proofs = transcript.into_proof();
-	proofs
+        proofs
     });
 
-
     let _timer = start_timer(|| format!("hyperplonk_verify-{k}"));
-    let accept = verifier_sample(System::HyperPlonk, String::from("fp_vanilla"),k, || {
+    let accept = verifier_sample(System::HyperPlonk, String::from("fp_vanilla"), k, || {
         let mut transcript = Blake2sTranscript::from_proof((), proof.as_slice());
         HyperPlonk::verify(&vp, instances, &mut transcript, std_rng()).is_ok()
-    });    
+    });
 
+    let mut t1 = Blake2sTranscript::from_proof((), proof.as_slice());
+    let end_size = t1.into_proof().len();
 
-    let mut t1 = Blake2sTranscript::from_proof((),proof.as_slice());
-    let end_size = t1.into_proof().len();    
+    writeln!(
+        &mut (System::HyperPlonk).size_output(),
+        "{k} : {:?}",
+        (end_size) * 8
+    )
+    .unwrap();
 
-    writeln!(&mut (System::HyperPlonk).size_output(), "{k} : {:?}", (end_size)*8).unwrap();
-    
     assert!(accept);
 }
 fn bench_hyperplonk_22<C: CircuitExt<GoldilocksMont>>(k: usize) {
-    type Basefold = multilinear::Basefold<GoldilocksMont,Blake2s256,TwentyTwo>;
+    type Basefold = multilinear::Basefold<GoldilocksMont, Blake2s256, TwentyTwo>;
     type HyperPlonk = backend::hyperplonk::HyperPlonk<Basefold>;
 
     let circuit = C::rand(k, std_rng());
@@ -646,38 +647,38 @@ fn bench_hyperplonk_22<C: CircuitExt<GoldilocksMont>>(k: usize) {
     let param = HyperPlonk::setup(&circuit_info, std_rng()).unwrap();
     end_timer(timer);
 
-
-
     let timer = start_timer(|| format!("hyperplonk_preprocess-{k}"));
     let (pp, vp) = HyperPlonk::preprocess(&param, &circuit_info).unwrap();
     end_timer(timer);
-
 
     let proof = sample(System::HyperPlonk, String::from("Fp - ecdsa"), k, || {
         let _timer = start_timer(|| format!("hyperplonk_prove-{k}"));
         let mut transcript = Blake2sTranscript::default();
         HyperPlonk::prove(&pp, &circuit, &mut transcript, std_rng()).unwrap();
         let proofs = transcript.into_proof();
-	proofs
+        proofs
     });
 
-
     let _timer = start_timer(|| format!("hyperplonk_verify-{k}"));
-    let accept = verifier_sample(System::HyperPlonk, String::from("fp_vanilla"),k, || {
+    let accept = verifier_sample(System::HyperPlonk, String::from("fp_vanilla"), k, || {
         let mut transcript = Blake2sTranscript::from_proof((), proof.as_slice());
         HyperPlonk::verify(&vp, instances, &mut transcript, std_rng()).is_ok()
-    });    
+    });
 
+    let mut t1 = Blake2sTranscript::from_proof((), proof.as_slice());
+    let end_size = t1.into_proof().len();
 
-    let mut t1 = Blake2sTranscript::from_proof((),proof.as_slice());
-    let end_size = t1.into_proof().len();    
+    writeln!(
+        &mut (System::HyperPlonk).size_output(),
+        "{k} : {:?}",
+        (end_size) * 8
+    )
+    .unwrap();
 
-    writeln!(&mut (System::HyperPlonk).size_output(), "{k} : {:?}", (end_size)*8).unwrap();
-    
     assert!(accept);
 }
 fn bench_hyperplonk_23<C: CircuitExt<GoldilocksMont>>(k: usize) {
-    type Basefold = multilinear::Basefold<GoldilocksMont,Blake2s256,TwentyThree>;
+    type Basefold = multilinear::Basefold<GoldilocksMont, Blake2s256, TwentyThree>;
     type HyperPlonk = backend::hyperplonk::HyperPlonk<Basefold>;
 
     let circuit = C::rand(k, std_rng());
@@ -689,38 +690,38 @@ fn bench_hyperplonk_23<C: CircuitExt<GoldilocksMont>>(k: usize) {
     let param = HyperPlonk::setup(&circuit_info, std_rng()).unwrap();
     end_timer(timer);
 
-
-
     let timer = start_timer(|| format!("hyperplonk_preprocess-{k}"));
     let (pp, vp) = HyperPlonk::preprocess(&param, &circuit_info).unwrap();
     end_timer(timer);
-
 
     let proof = sample(System::HyperPlonk, String::from("Fp - ecdsa"), k, || {
         let _timer = start_timer(|| format!("hyperplonk_prove-{k}"));
         let mut transcript = Blake2sTranscript::default();
         HyperPlonk::prove(&pp, &circuit, &mut transcript, std_rng()).unwrap();
         let proofs = transcript.into_proof();
-	proofs
+        proofs
     });
 
-
     let _timer = start_timer(|| format!("hyperplonk_verify-{k}"));
-    let accept = verifier_sample(System::HyperPlonk, String::from("fp_vanilla"),k, || {
+    let accept = verifier_sample(System::HyperPlonk, String::from("fp_vanilla"), k, || {
         let mut transcript = Blake2sTranscript::from_proof((), proof.as_slice());
         HyperPlonk::verify(&vp, instances, &mut transcript, std_rng()).is_ok()
-    });    
+    });
 
+    let mut t1 = Blake2sTranscript::from_proof((), proof.as_slice());
+    let end_size = t1.into_proof().len();
 
-    let mut t1 = Blake2sTranscript::from_proof((),proof.as_slice());
-    let end_size = t1.into_proof().len();    
+    writeln!(
+        &mut (System::HyperPlonk).size_output(),
+        "{k} : {:?}",
+        (end_size) * 8
+    )
+    .unwrap();
 
-    writeln!(&mut (System::HyperPlonk).size_output(), "{k} : {:?}", (end_size)*8).unwrap();
-    
     assert!(accept);
 }
 fn bench_hyperplonk_24<C: CircuitExt<GoldilocksMont>>(k: usize) {
-    type Basefold = multilinear::Basefold<GoldilocksMont,Blake2s256,TwentyFour>;
+    type Basefold = multilinear::Basefold<GoldilocksMont, Blake2s256, TwentyFour>;
     type HyperPlonk = backend::hyperplonk::HyperPlonk<Basefold>;
 
     let circuit = C::rand(k, std_rng());
@@ -732,39 +733,39 @@ fn bench_hyperplonk_24<C: CircuitExt<GoldilocksMont>>(k: usize) {
     let param = HyperPlonk::setup(&circuit_info, std_rng()).unwrap();
     end_timer(timer);
 
-
-
     let timer = start_timer(|| format!("hyperplonk_preprocess-{k}"));
     let (pp, vp) = HyperPlonk::preprocess(&param, &circuit_info).unwrap();
     end_timer(timer);
-
 
     let proof = sample(System::HyperPlonk, String::from("Fp - ecdsa"), k, || {
         let _timer = start_timer(|| format!("hyperplonk_prove-{k}"));
         let mut transcript = Blake2sTranscript::default();
         HyperPlonk::prove(&pp, &circuit, &mut transcript, std_rng()).unwrap();
         let proofs = transcript.into_proof();
-	proofs
+        proofs
     });
 
-
     let _timer = start_timer(|| format!("hyperplonk_verify-{k}"));
-    let accept = verifier_sample(System::HyperPlonk, String::from("fp_vanilla"),k, || {
+    let accept = verifier_sample(System::HyperPlonk, String::from("fp_vanilla"), k, || {
         let mut transcript = Blake2sTranscript::from_proof((), proof.as_slice());
         HyperPlonk::verify(&vp, instances, &mut transcript, std_rng()).is_ok()
-    });    
+    });
 
+    let mut t1 = Blake2sTranscript::from_proof((), proof.as_slice());
+    let end_size = t1.into_proof().len();
 
-    let mut t1 = Blake2sTranscript::from_proof((),proof.as_slice());
-    let end_size = t1.into_proof().len();    
+    writeln!(
+        &mut (System::HyperPlonk).size_output(),
+        "{k} : {:?}",
+        (end_size) * 8
+    )
+    .unwrap();
 
-    writeln!(&mut (System::HyperPlonk).size_output(), "{k} : {:?}", (end_size)*8).unwrap();
-    
     assert!(accept);
 }
 
 fn bench_hyperplonk_25<C: CircuitExt<GoldilocksMont>>(k: usize) {
-    type Basefold = multilinear::Basefold<GoldilocksMont,Blake2s256,TwentyFive>;
+    type Basefold = multilinear::Basefold<GoldilocksMont, Blake2s256, TwentyFive>;
     type HyperPlonk = backend::hyperplonk::HyperPlonk<Basefold>;
 
     let circuit = C::rand(k, std_rng());
@@ -776,39 +777,39 @@ fn bench_hyperplonk_25<C: CircuitExt<GoldilocksMont>>(k: usize) {
     let param = HyperPlonk::setup(&circuit_info, std_rng()).unwrap();
     end_timer(timer);
 
-
-
     let timer = start_timer(|| format!("hyperplonk_preprocess-{k}"));
     let (pp, vp) = HyperPlonk::preprocess(&param, &circuit_info).unwrap();
     end_timer(timer);
-
 
     let proof = sample(System::HyperPlonk, String::from("Fp - ecdsa"), k, || {
         let _timer = start_timer(|| format!("hyperplonk_prove-{k}"));
         let mut transcript = Blake2sTranscript::default();
         HyperPlonk::prove(&pp, &circuit, &mut transcript, std_rng()).unwrap();
         let proofs = transcript.into_proof();
-	proofs
+        proofs
     });
 
-
     let _timer = start_timer(|| format!("hyperplonk_verify-{k}"));
-    let accept = verifier_sample(System::HyperPlonk, String::from("fp_vanilla"),k, || {
+    let accept = verifier_sample(System::HyperPlonk, String::from("fp_vanilla"), k, || {
         let mut transcript = Blake2sTranscript::from_proof((), proof.as_slice());
         HyperPlonk::verify(&vp, instances, &mut transcript, std_rng()).is_ok()
-    });    
+    });
 
+    let mut t1 = Blake2sTranscript::from_proof((), proof.as_slice());
+    let end_size = t1.into_proof().len();
 
-    let mut t1 = Blake2sTranscript::from_proof((),proof.as_slice());
-    let end_size = t1.into_proof().len();    
+    writeln!(
+        &mut (System::HyperPlonk).size_output(),
+        "{k} : {:?}",
+        (end_size) * 8
+    )
+    .unwrap();
 
-    writeln!(&mut (System::HyperPlonk).size_output(), "{k} : {:?}", (end_size)*8).unwrap();
-    
     assert!(accept);
 }
 
 fn bench_hyperplonk_10_8<C: CircuitExt<GoldilocksMont>>(k: usize) {
-    type Basefold = multilinear::Basefold<GoldilocksMont,Blake2s256,Ten8>;
+    type Basefold = multilinear::Basefold<GoldilocksMont, Blake2s256, Ten8>;
     type HyperPlonk = backend::hyperplonk::HyperPlonk<Basefold>;
 
     let circuit = C::rand(k, std_rng());
@@ -820,39 +821,39 @@ fn bench_hyperplonk_10_8<C: CircuitExt<GoldilocksMont>>(k: usize) {
     let param = HyperPlonk::setup(&circuit_info, std_rng()).unwrap();
     end_timer(timer);
 
-
-
     let timer = start_timer(|| format!("hyperplonk_preprocess-{k}"));
     let (pp, vp) = HyperPlonk::preprocess(&param, &circuit_info).unwrap();
     end_timer(timer);
-
 
     let proof = sample(System::HyperPlonk, String::from("Fp - ecdsa"), k, || {
         let _timer = start_timer(|| format!("hyperplonk_prove-{k}"));
         let mut transcript = Blake2sTranscript::default();
         HyperPlonk::prove(&pp, &circuit, &mut transcript, std_rng()).unwrap();
         let proofs = transcript.into_proof();
-	proofs
+        proofs
     });
 
-
     let _timer = start_timer(|| format!("hyperplonk_verify-{k}"));
-    let accept = verifier_sample(System::HyperPlonk, String::from("fp_vanilla"),k, || {
+    let accept = verifier_sample(System::HyperPlonk, String::from("fp_vanilla"), k, || {
         let mut transcript = Blake2sTranscript::from_proof((), proof.as_slice());
         HyperPlonk::verify(&vp, instances, &mut transcript, std_rng()).is_ok()
-    });    
+    });
 
+    let mut t1 = Blake2sTranscript::from_proof((), proof.as_slice());
+    let end_size = t1.into_proof().len();
 
-    let mut t1 = Blake2sTranscript::from_proof((),proof.as_slice());
-    let end_size = t1.into_proof().len();    
+    writeln!(
+        &mut (System::HyperPlonk).size_output(),
+        "{k} : {:?}",
+        (end_size) * 8
+    )
+    .unwrap();
 
-    writeln!(&mut (System::HyperPlonk).size_output(), "{k} : {:?}", (end_size)*8).unwrap();
-    
     assert!(accept);
 }
 
 fn bench_hyperplonk_11_8<C: CircuitExt<GoldilocksMont>>(k: usize) {
-    type Basefold = multilinear::Basefold<GoldilocksMont,Blake2s256,Eleven8>;
+    type Basefold = multilinear::Basefold<GoldilocksMont, Blake2s256, Eleven8>;
     type HyperPlonk = backend::hyperplonk::HyperPlonk<Basefold>;
 
     let circuit = C::rand(k, std_rng());
@@ -864,38 +865,38 @@ fn bench_hyperplonk_11_8<C: CircuitExt<GoldilocksMont>>(k: usize) {
     let param = HyperPlonk::setup(&circuit_info, std_rng()).unwrap();
     end_timer(timer);
 
-
-
     let timer = start_timer(|| format!("hyperplonk_preprocess-{k}"));
     let (pp, vp) = HyperPlonk::preprocess(&param, &circuit_info).unwrap();
     end_timer(timer);
-
 
     let proof = sample(System::HyperPlonk, String::from("Fp - ecdsa"), k, || {
         let _timer = start_timer(|| format!("hyperplonk_prove-{k}"));
         let mut transcript = Blake2sTranscript::default();
         HyperPlonk::prove(&pp, &circuit, &mut transcript, std_rng()).unwrap();
         let proofs = transcript.into_proof();
-	proofs
+        proofs
     });
 
-
     let _timer = start_timer(|| format!("hyperplonk_verify-{k}"));
-    let accept = verifier_sample(System::HyperPlonk, String::from("fp_vanilla"),k, || {
+    let accept = verifier_sample(System::HyperPlonk, String::from("fp_vanilla"), k, || {
         let mut transcript = Blake2sTranscript::from_proof((), proof.as_slice());
         HyperPlonk::verify(&vp, instances, &mut transcript, std_rng()).is_ok()
-    });    
+    });
 
+    let mut t1 = Blake2sTranscript::from_proof((), proof.as_slice());
+    let end_size = t1.into_proof().len();
 
-    let mut t1 = Blake2sTranscript::from_proof((),proof.as_slice());
-    let end_size = t1.into_proof().len();    
+    writeln!(
+        &mut (System::HyperPlonk).size_output(),
+        "{:?}",
+        (end_size) * 8
+    )
+    .unwrap();
 
-    writeln!(&mut (System::HyperPlonk).size_output(), "{:?}", (end_size)*8).unwrap();
-    
     assert!(accept);
 }
 fn bench_hyperplonk_12_8<C: CircuitExt<GoldilocksMont>>(k: usize) {
-    type Basefold = multilinear::Basefold<GoldilocksMont,Blake2s256,Twelve8>;
+    type Basefold = multilinear::Basefold<GoldilocksMont, Blake2s256, Twelve8>;
     type HyperPlonk = backend::hyperplonk::HyperPlonk<Basefold>;
 
     let circuit = C::rand(k, std_rng());
@@ -907,38 +908,38 @@ fn bench_hyperplonk_12_8<C: CircuitExt<GoldilocksMont>>(k: usize) {
     let param = HyperPlonk::setup(&circuit_info, std_rng()).unwrap();
     end_timer(timer);
 
-
-
     let timer = start_timer(|| format!("hyperplonk_preprocess-{k}"));
     let (pp, vp) = HyperPlonk::preprocess(&param, &circuit_info).unwrap();
     end_timer(timer);
-
 
     let proof = sample(System::HyperPlonk, String::from("Fp - ecdsa"), k, || {
         let _timer = start_timer(|| format!("hyperplonk_prove-{k}"));
         let mut transcript = Blake2sTranscript::default();
         HyperPlonk::prove(&pp, &circuit, &mut transcript, std_rng()).unwrap();
         let proofs = transcript.into_proof();
-	proofs
+        proofs
     });
 
-
     let _timer = start_timer(|| format!("hyperplonk_verify-{k}"));
-    let accept = verifier_sample(System::HyperPlonk, String::from("fp_vanilla"),k, || {
+    let accept = verifier_sample(System::HyperPlonk, String::from("fp_vanilla"), k, || {
         let mut transcript = Blake2sTranscript::from_proof((), proof.as_slice());
         HyperPlonk::verify(&vp, instances, &mut transcript, std_rng()).is_ok()
-    });    
+    });
 
+    let mut t1 = Blake2sTranscript::from_proof((), proof.as_slice());
+    let end_size = t1.into_proof().len();
 
-    let mut t1 = Blake2sTranscript::from_proof((),proof.as_slice());
-    let end_size = t1.into_proof().len();    
+    writeln!(
+        &mut (System::HyperPlonk).size_output(),
+        "{k} : {:?}",
+        (end_size) * 8
+    )
+    .unwrap();
 
-    writeln!(&mut (System::HyperPlonk).size_output(), "{k} : {:?}", (end_size)*8).unwrap();
-    
     assert!(accept);
 }
 fn bench_hyperplonk_13_8<C: CircuitExt<GoldilocksMont>>(k: usize) {
-    type Basefold = multilinear::Basefold<GoldilocksMont,Blake2s256,Thirteen8>;
+    type Basefold = multilinear::Basefold<GoldilocksMont, Blake2s256, Thirteen8>;
     type HyperPlonk = backend::hyperplonk::HyperPlonk<Basefold>;
 
     let circuit = C::rand(k, std_rng());
@@ -950,38 +951,38 @@ fn bench_hyperplonk_13_8<C: CircuitExt<GoldilocksMont>>(k: usize) {
     let param = HyperPlonk::setup(&circuit_info, std_rng()).unwrap();
     end_timer(timer);
 
-
-
     let timer = start_timer(|| format!("hyperplonk_preprocess-{k}"));
     let (pp, vp) = HyperPlonk::preprocess(&param, &circuit_info).unwrap();
     end_timer(timer);
-
 
     let proof = sample(System::HyperPlonk, String::from("Fp - ecdsa"), k, || {
         let _timer = start_timer(|| format!("hyperplonk_prove-{k}"));
         let mut transcript = Blake2sTranscript::default();
         HyperPlonk::prove(&pp, &circuit, &mut transcript, std_rng()).unwrap();
         let proofs = transcript.into_proof();
-	proofs
+        proofs
     });
 
-
     let _timer = start_timer(|| format!("hyperplonk_verify-{k}"));
-    let accept = verifier_sample(System::HyperPlonk, String::from("fp_vanilla"),k, || {
+    let accept = verifier_sample(System::HyperPlonk, String::from("fp_vanilla"), k, || {
         let mut transcript = Blake2sTranscript::from_proof((), proof.as_slice());
         HyperPlonk::verify(&vp, instances, &mut transcript, std_rng()).is_ok()
-    });    
+    });
 
+    let mut t1 = Blake2sTranscript::from_proof((), proof.as_slice());
+    let end_size = t1.into_proof().len();
 
-    let mut t1 = Blake2sTranscript::from_proof((),proof.as_slice());
-    let end_size = t1.into_proof().len();    
+    writeln!(
+        &mut (System::HyperPlonk).size_output(),
+        "{k} : {:?}",
+        (end_size) * 8
+    )
+    .unwrap();
 
-    writeln!(&mut (System::HyperPlonk).size_output(), "{k} : {:?}", (end_size)*8).unwrap();
-    
     assert!(accept);
 }
 fn bench_hyperplonk_14_8<C: CircuitExt<GoldilocksMont>>(k: usize) {
-    type Basefold = multilinear::Basefold<GoldilocksMont,Blake2s256,Fourteen8>;
+    type Basefold = multilinear::Basefold<GoldilocksMont, Blake2s256, Fourteen8>;
     type HyperPlonk = backend::hyperplonk::HyperPlonk<Basefold>;
 
     let circuit = C::rand(k, std_rng());
@@ -993,38 +994,38 @@ fn bench_hyperplonk_14_8<C: CircuitExt<GoldilocksMont>>(k: usize) {
     let param = HyperPlonk::setup(&circuit_info, std_rng()).unwrap();
     end_timer(timer);
 
-
-
     let timer = start_timer(|| format!("hyperplonk_preprocess-{k}"));
     let (pp, vp) = HyperPlonk::preprocess(&param, &circuit_info).unwrap();
     end_timer(timer);
-
 
     let proof = sample(System::HyperPlonk, String::from("Fp - ecdsa"), k, || {
         let _timer = start_timer(|| format!("hyperplonk_prove-{k}"));
         let mut transcript = Blake2sTranscript::default();
         HyperPlonk::prove(&pp, &circuit, &mut transcript, std_rng()).unwrap();
         let proofs = transcript.into_proof();
-	proofs
+        proofs
     });
 
-
     let _timer = start_timer(|| format!("hyperplonk_verify-{k}"));
-    let accept = verifier_sample(System::HyperPlonk, String::from("fp_vanilla"),k, || {
+    let accept = verifier_sample(System::HyperPlonk, String::from("fp_vanilla"), k, || {
         let mut transcript = Blake2sTranscript::from_proof((), proof.as_slice());
         HyperPlonk::verify(&vp, instances, &mut transcript, std_rng()).is_ok()
-    });    
+    });
 
+    let mut t1 = Blake2sTranscript::from_proof((), proof.as_slice());
+    let end_size = t1.into_proof().len();
 
-    let mut t1 = Blake2sTranscript::from_proof((),proof.as_slice());
-    let end_size = t1.into_proof().len();    
+    writeln!(
+        &mut (System::HyperPlonk).size_output(),
+        "{k} : {:?}",
+        (end_size) * 8
+    )
+    .unwrap();
 
-    writeln!(&mut (System::HyperPlonk).size_output(), "{k} : {:?}", (end_size)*8).unwrap();
-    
     assert!(accept);
 }
 fn bench_hyperplonk_15_8<C: CircuitExt<GoldilocksMont>>(k: usize) {
-    type Basefold = multilinear::Basefold<GoldilocksMont,Blake2s256,Fifteen8>;
+    type Basefold = multilinear::Basefold<GoldilocksMont, Blake2s256, Fifteen8>;
     type HyperPlonk = backend::hyperplonk::HyperPlonk<Basefold>;
 
     let circuit = C::rand(k, std_rng());
@@ -1036,38 +1037,38 @@ fn bench_hyperplonk_15_8<C: CircuitExt<GoldilocksMont>>(k: usize) {
     let param = HyperPlonk::setup(&circuit_info, std_rng()).unwrap();
     end_timer(timer);
 
-
-
     let timer = start_timer(|| format!("hyperplonk_preprocess-{k}"));
     let (pp, vp) = HyperPlonk::preprocess(&param, &circuit_info).unwrap();
     end_timer(timer);
-
 
     let proof = sample(System::HyperPlonk, String::from("Fp - ecdsa"), k, || {
         let _timer = start_timer(|| format!("hyperplonk_prove-{k}"));
         let mut transcript = Blake2sTranscript::default();
         HyperPlonk::prove(&pp, &circuit, &mut transcript, std_rng()).unwrap();
         let proofs = transcript.into_proof();
-	proofs
+        proofs
     });
 
-
     let _timer = start_timer(|| format!("hyperplonk_verify-{k}"));
-    let accept = verifier_sample(System::HyperPlonk, String::from("fp_vanilla"),k, || {
+    let accept = verifier_sample(System::HyperPlonk, String::from("fp_vanilla"), k, || {
         let mut transcript = Blake2sTranscript::from_proof((), proof.as_slice());
         HyperPlonk::verify(&vp, instances, &mut transcript, std_rng()).is_ok()
-    });    
+    });
 
+    let mut t1 = Blake2sTranscript::from_proof((), proof.as_slice());
+    let end_size = t1.into_proof().len();
 
-    let mut t1 = Blake2sTranscript::from_proof((),proof.as_slice());
-    let end_size = t1.into_proof().len();    
+    writeln!(
+        &mut (System::HyperPlonk).size_output(),
+        "{k} : {:?}",
+        (end_size) * 8
+    )
+    .unwrap();
 
-    writeln!(&mut (System::HyperPlonk).size_output(), "{k} : {:?}", (end_size)*8).unwrap();
-    
     assert!(accept);
 }
 fn bench_hyperplonk_16_8<C: CircuitExt<GoldilocksMont>>(k: usize) {
-    type Basefold = multilinear::Basefold<GoldilocksMont,Blake2s256,Sixteen8>;
+    type Basefold = multilinear::Basefold<GoldilocksMont, Blake2s256, Sixteen8>;
     type HyperPlonk = backend::hyperplonk::HyperPlonk<Basefold>;
 
     let circuit = C::rand(k, std_rng());
@@ -1079,38 +1080,38 @@ fn bench_hyperplonk_16_8<C: CircuitExt<GoldilocksMont>>(k: usize) {
     let param = HyperPlonk::setup(&circuit_info, std_rng()).unwrap();
     end_timer(timer);
 
-
-
     let timer = start_timer(|| format!("hyperplonk_preprocess-{k}"));
     let (pp, vp) = HyperPlonk::preprocess(&param, &circuit_info).unwrap();
     end_timer(timer);
-
 
     let proof = sample(System::HyperPlonk, String::from("Fp - ecdsa"), k, || {
         let _timer = start_timer(|| format!("hyperplonk_prove-{k}"));
         let mut transcript = Blake2sTranscript::default();
         HyperPlonk::prove(&pp, &circuit, &mut transcript, std_rng()).unwrap();
         let proofs = transcript.into_proof();
-	proofs
+        proofs
     });
 
-
     let _timer = start_timer(|| format!("hyperplonk_verify-{k}"));
-    let accept = verifier_sample(System::HyperPlonk, String::from("fp_vanilla"),k, || {
+    let accept = verifier_sample(System::HyperPlonk, String::from("fp_vanilla"), k, || {
         let mut transcript = Blake2sTranscript::from_proof((), proof.as_slice());
         HyperPlonk::verify(&vp, instances, &mut transcript, std_rng()).is_ok()
-    });    
+    });
 
+    let mut t1 = Blake2sTranscript::from_proof((), proof.as_slice());
+    let end_size = t1.into_proof().len();
 
-    let mut t1 = Blake2sTranscript::from_proof((),proof.as_slice());
-    let end_size = t1.into_proof().len();    
+    writeln!(
+        &mut (System::HyperPlonk).size_output(),
+        "{k} : {:?}",
+        (end_size) * 8
+    )
+    .unwrap();
 
-    writeln!(&mut (System::HyperPlonk).size_output(), "{k} : {:?}", (end_size)*8).unwrap();
-    
     assert!(accept);
 }
 fn bench_hyperplonk_17_8<C: CircuitExt<GoldilocksMont>>(k: usize) {
-    type Basefold = multilinear::Basefold<GoldilocksMont,Blake2s256,Seventeen8>;
+    type Basefold = multilinear::Basefold<GoldilocksMont, Blake2s256, Seventeen8>;
     type HyperPlonk = backend::hyperplonk::HyperPlonk<Basefold>;
 
     let circuit = C::rand(k, std_rng());
@@ -1122,38 +1123,38 @@ fn bench_hyperplonk_17_8<C: CircuitExt<GoldilocksMont>>(k: usize) {
     let param = HyperPlonk::setup(&circuit_info, std_rng()).unwrap();
     end_timer(timer);
 
-
-
     let timer = start_timer(|| format!("hyperplonk_preprocess-{k}"));
     let (pp, vp) = HyperPlonk::preprocess(&param, &circuit_info).unwrap();
     end_timer(timer);
-
 
     let proof = sample(System::HyperPlonk, String::from("Fp - ecdsa"), k, || {
         let _timer = start_timer(|| format!("hyperplonk_prove-{k}"));
         let mut transcript = Blake2sTranscript::default();
         HyperPlonk::prove(&pp, &circuit, &mut transcript, std_rng()).unwrap();
         let proofs = transcript.into_proof();
-	proofs
+        proofs
     });
 
-
     let _timer = start_timer(|| format!("hyperplonk_verify-{k}"));
-    let accept = verifier_sample(System::HyperPlonk, String::from("fp_vanilla"),k, || {
+    let accept = verifier_sample(System::HyperPlonk, String::from("fp_vanilla"), k, || {
         let mut transcript = Blake2sTranscript::from_proof((), proof.as_slice());
         HyperPlonk::verify(&vp, instances, &mut transcript, std_rng()).is_ok()
-    });    
+    });
 
+    let mut t1 = Blake2sTranscript::from_proof((), proof.as_slice());
+    let end_size = t1.into_proof().len();
 
-    let mut t1 = Blake2sTranscript::from_proof((),proof.as_slice());
-    let end_size = t1.into_proof().len();    
+    writeln!(
+        &mut (System::HyperPlonk).size_output(),
+        "{k} : {:?}",
+        (end_size) * 8
+    )
+    .unwrap();
 
-    writeln!(&mut (System::HyperPlonk).size_output(), "{k} : {:?}", (end_size)*8).unwrap();
-    
     assert!(accept);
 }
 fn bench_hyperplonk_18_8<C: CircuitExt<GoldilocksMont>>(k: usize) {
-    type Basefold = multilinear::Basefold<GoldilocksMont,Blake2s256,Eighteen8>;
+    type Basefold = multilinear::Basefold<GoldilocksMont, Blake2s256, Eighteen8>;
     type HyperPlonk = backend::hyperplonk::HyperPlonk<Basefold>;
 
     let circuit = C::rand(k, std_rng());
@@ -1165,38 +1166,38 @@ fn bench_hyperplonk_18_8<C: CircuitExt<GoldilocksMont>>(k: usize) {
     let param = HyperPlonk::setup(&circuit_info, std_rng()).unwrap();
     end_timer(timer);
 
-
-
     let timer = start_timer(|| format!("hyperplonk_preprocess-{k}"));
     let (pp, vp) = HyperPlonk::preprocess(&param, &circuit_info).unwrap();
     end_timer(timer);
-
 
     let proof = sample(System::HyperPlonk, String::from("Fp - ecdsa"), k, || {
         let _timer = start_timer(|| format!("hyperplonk_prove-{k}"));
         let mut transcript = Blake2sTranscript::default();
         HyperPlonk::prove(&pp, &circuit, &mut transcript, std_rng()).unwrap();
         let proofs = transcript.into_proof();
-	proofs
+        proofs
     });
 
-
     let _timer = start_timer(|| format!("hyperplonk_verify-{k}"));
-    let accept = verifier_sample(System::HyperPlonk, String::from("fp_vanilla"),k, || {
+    let accept = verifier_sample(System::HyperPlonk, String::from("fp_vanilla"), k, || {
         let mut transcript = Blake2sTranscript::from_proof((), proof.as_slice());
         HyperPlonk::verify(&vp, instances, &mut transcript, std_rng()).is_ok()
-    });    
+    });
 
+    let mut t1 = Blake2sTranscript::from_proof((), proof.as_slice());
+    let end_size = t1.into_proof().len();
 
-    let mut t1 = Blake2sTranscript::from_proof((),proof.as_slice());
-    let end_size = t1.into_proof().len();    
+    writeln!(
+        &mut (System::HyperPlonk).size_output(),
+        "{k} : {:?}",
+        (end_size) * 8
+    )
+    .unwrap();
 
-    writeln!(&mut (System::HyperPlonk).size_output(), "{k} : {:?}", (end_size)*8).unwrap();
-    
     assert!(accept);
 }
 fn bench_hyperplonk_19_8<C: CircuitExt<GoldilocksMont>>(k: usize) {
-    type Basefold = multilinear::Basefold<GoldilocksMont,Blake2s256,Nineteen8>;
+    type Basefold = multilinear::Basefold<GoldilocksMont, Blake2s256, Nineteen8>;
     type HyperPlonk = backend::hyperplonk::HyperPlonk<Basefold>;
 
     let circuit = C::rand(k, std_rng());
@@ -1208,38 +1209,38 @@ fn bench_hyperplonk_19_8<C: CircuitExt<GoldilocksMont>>(k: usize) {
     let param = HyperPlonk::setup(&circuit_info, std_rng()).unwrap();
     end_timer(timer);
 
-
-
     let timer = start_timer(|| format!("hyperplonk_preprocess-{k}"));
     let (pp, vp) = HyperPlonk::preprocess(&param, &circuit_info).unwrap();
     end_timer(timer);
-
 
     let proof = sample(System::HyperPlonk, String::from("Fp - ecdsa"), k, || {
         let _timer = start_timer(|| format!("hyperplonk_prove-{k}"));
         let mut transcript = Blake2sTranscript::default();
         HyperPlonk::prove(&pp, &circuit, &mut transcript, std_rng()).unwrap();
         let proofs = transcript.into_proof();
-	proofs
+        proofs
     });
 
-
     let _timer = start_timer(|| format!("hyperplonk_verify-{k}"));
-    let accept = verifier_sample(System::HyperPlonk, String::from("fp_vanilla"),k, || {
+    let accept = verifier_sample(System::HyperPlonk, String::from("fp_vanilla"), k, || {
         let mut transcript = Blake2sTranscript::from_proof((), proof.as_slice());
         HyperPlonk::verify(&vp, instances, &mut transcript, std_rng()).is_ok()
-    });    
+    });
 
+    let mut t1 = Blake2sTranscript::from_proof((), proof.as_slice());
+    let end_size = t1.into_proof().len();
 
-    let mut t1 = Blake2sTranscript::from_proof((),proof.as_slice());
-    let end_size = t1.into_proof().len();    
+    writeln!(
+        &mut (System::HyperPlonk).size_output(),
+        "{k} : {:?}",
+        (end_size) * 8
+    )
+    .unwrap();
 
-    writeln!(&mut (System::HyperPlonk).size_output(), "{k} : {:?}", (end_size)*8).unwrap();
-    
     assert!(accept);
 }
 fn bench_hyperplonk_20_8<C: CircuitExt<GoldilocksMont>>(k: usize) {
-    type Basefold = multilinear::Basefold<GoldilocksMont,Blake2s256,Twenty8>;
+    type Basefold = multilinear::Basefold<GoldilocksMont, Blake2s256, Twenty8>;
     type HyperPlonk = backend::hyperplonk::HyperPlonk<Basefold>;
 
     let circuit = C::rand(k, std_rng());
@@ -1251,38 +1252,38 @@ fn bench_hyperplonk_20_8<C: CircuitExt<GoldilocksMont>>(k: usize) {
     let param = HyperPlonk::setup(&circuit_info, std_rng()).unwrap();
     end_timer(timer);
 
-
-
     let timer = start_timer(|| format!("hyperplonk_preprocess-{k}"));
     let (pp, vp) = HyperPlonk::preprocess(&param, &circuit_info).unwrap();
     end_timer(timer);
-
 
     let proof = sample(System::HyperPlonk, String::from("Fp - ecdsa"), k, || {
         let _timer = start_timer(|| format!("hyperplonk_prove-{k}"));
         let mut transcript = Blake2sTranscript::default();
         HyperPlonk::prove(&pp, &circuit, &mut transcript, std_rng()).unwrap();
         let proofs = transcript.into_proof();
-	proofs
+        proofs
     });
 
-
     let _timer = start_timer(|| format!("hyperplonk_verify-{k}"));
-    let accept = verifier_sample(System::HyperPlonk, String::from("fp_vanilla"),k, || {
+    let accept = verifier_sample(System::HyperPlonk, String::from("fp_vanilla"), k, || {
         let mut transcript = Blake2sTranscript::from_proof((), proof.as_slice());
         HyperPlonk::verify(&vp, instances, &mut transcript, std_rng()).is_ok()
-    });    
+    });
 
+    let mut t1 = Blake2sTranscript::from_proof((), proof.as_slice());
+    let end_size = t1.into_proof().len();
 
-    let mut t1 = Blake2sTranscript::from_proof((),proof.as_slice());
-    let end_size = t1.into_proof().len();    
+    writeln!(
+        &mut (System::HyperPlonk).size_output(),
+        "{k} : {:?}",
+        (end_size) * 8
+    )
+    .unwrap();
 
-    writeln!(&mut (System::HyperPlonk).size_output(), "{k} : {:?}", (end_size)*8).unwrap();
-    
     assert!(accept);
 }
 fn bench_hyperplonk_21_8<C: CircuitExt<GoldilocksMont>>(k: usize) {
-    type Basefold = multilinear::Basefold<GoldilocksMont,Blake2s256,TwentyOne8>;
+    type Basefold = multilinear::Basefold<GoldilocksMont, Blake2s256, TwentyOne8>;
     type HyperPlonk = backend::hyperplonk::HyperPlonk<Basefold>;
 
     let circuit = C::rand(k, std_rng());
@@ -1294,38 +1295,38 @@ fn bench_hyperplonk_21_8<C: CircuitExt<GoldilocksMont>>(k: usize) {
     let param = HyperPlonk::setup(&circuit_info, std_rng()).unwrap();
     end_timer(timer);
 
-
-
     let timer = start_timer(|| format!("hyperplonk_preprocess-{k}"));
     let (pp, vp) = HyperPlonk::preprocess(&param, &circuit_info).unwrap();
     end_timer(timer);
-
 
     let proof = sample(System::HyperPlonk, String::from("Fp - ecdsa"), k, || {
         let _timer = start_timer(|| format!("hyperplonk_prove-{k}"));
         let mut transcript = Blake2sTranscript::default();
         HyperPlonk::prove(&pp, &circuit, &mut transcript, std_rng()).unwrap();
         let proofs = transcript.into_proof();
-	proofs
+        proofs
     });
 
-
     let _timer = start_timer(|| format!("hyperplonk_verify-{k}"));
-    let accept = verifier_sample(System::HyperPlonk, String::from("fp_vanilla"),k, || {
+    let accept = verifier_sample(System::HyperPlonk, String::from("fp_vanilla"), k, || {
         let mut transcript = Blake2sTranscript::from_proof((), proof.as_slice());
         HyperPlonk::verify(&vp, instances, &mut transcript, std_rng()).is_ok()
-    });    
+    });
 
+    let mut t1 = Blake2sTranscript::from_proof((), proof.as_slice());
+    let end_size = t1.into_proof().len();
 
-    let mut t1 = Blake2sTranscript::from_proof((),proof.as_slice());
-    let end_size = t1.into_proof().len();    
+    writeln!(
+        &mut (System::HyperPlonk).size_output(),
+        "{k} : {:?}",
+        (end_size) * 8
+    )
+    .unwrap();
 
-    writeln!(&mut (System::HyperPlonk).size_output(), "{k} : {:?}", (end_size)*8).unwrap();
-    
     assert!(accept);
 }
 fn bench_hyperplonk_22_8<C: CircuitExt<GoldilocksMont>>(k: usize) {
-    type Basefold = multilinear::Basefold<GoldilocksMont,Blake2s256,TwentyTwo8>;
+    type Basefold = multilinear::Basefold<GoldilocksMont, Blake2s256, TwentyTwo8>;
     type HyperPlonk = backend::hyperplonk::HyperPlonk<Basefold>;
 
     let circuit = C::rand(k, std_rng());
@@ -1337,38 +1338,38 @@ fn bench_hyperplonk_22_8<C: CircuitExt<GoldilocksMont>>(k: usize) {
     let param = HyperPlonk::setup(&circuit_info, std_rng()).unwrap();
     end_timer(timer);
 
-
-
     let timer = start_timer(|| format!("hyperplonk_preprocess-{k}"));
     let (pp, vp) = HyperPlonk::preprocess(&param, &circuit_info).unwrap();
     end_timer(timer);
-
 
     let proof = sample(System::HyperPlonk, String::from("Fp - ecdsa"), k, || {
         let _timer = start_timer(|| format!("hyperplonk_prove-{k}"));
         let mut transcript = Blake2sTranscript::default();
         HyperPlonk::prove(&pp, &circuit, &mut transcript, std_rng()).unwrap();
         let proofs = transcript.into_proof();
-	proofs
+        proofs
     });
 
-
     let _timer = start_timer(|| format!("hyperplonk_verify-{k}"));
-    let accept = verifier_sample(System::HyperPlonk, String::from("fp_vanilla"),k, || {
+    let accept = verifier_sample(System::HyperPlonk, String::from("fp_vanilla"), k, || {
         let mut transcript = Blake2sTranscript::from_proof((), proof.as_slice());
         HyperPlonk::verify(&vp, instances, &mut transcript, std_rng()).is_ok()
-    });    
+    });
 
+    let mut t1 = Blake2sTranscript::from_proof((), proof.as_slice());
+    let end_size = t1.into_proof().len();
 
-    let mut t1 = Blake2sTranscript::from_proof((),proof.as_slice());
-    let end_size = t1.into_proof().len();    
+    writeln!(
+        &mut (System::HyperPlonk).size_output(),
+        "{k} : {:?}",
+        (end_size) * 8
+    )
+    .unwrap();
 
-    writeln!(&mut (System::HyperPlonk).size_output(), "{k} : {:?}", (end_size)*8).unwrap();
-    
     assert!(accept);
 }
 fn bench_hyperplonk_23_8<C: CircuitExt<GoldilocksMont>>(k: usize) {
-    type Basefold = multilinear::Basefold<GoldilocksMont,Blake2s256,TwentyThree8>;
+    type Basefold = multilinear::Basefold<GoldilocksMont, Blake2s256, TwentyThree8>;
     type HyperPlonk = backend::hyperplonk::HyperPlonk<Basefold>;
 
     let circuit = C::rand(k, std_rng());
@@ -1380,38 +1381,38 @@ fn bench_hyperplonk_23_8<C: CircuitExt<GoldilocksMont>>(k: usize) {
     let param = HyperPlonk::setup(&circuit_info, std_rng()).unwrap();
     end_timer(timer);
 
-
-
     let timer = start_timer(|| format!("hyperplonk_preprocess-{k}"));
     let (pp, vp) = HyperPlonk::preprocess(&param, &circuit_info).unwrap();
     end_timer(timer);
-
 
     let proof = sample(System::HyperPlonk, String::from("Fp - ecdsa"), k, || {
         let _timer = start_timer(|| format!("hyperplonk_prove-{k}"));
         let mut transcript = Blake2sTranscript::default();
         HyperPlonk::prove(&pp, &circuit, &mut transcript, std_rng()).unwrap();
         let proofs = transcript.into_proof();
-	proofs
+        proofs
     });
 
-
     let _timer = start_timer(|| format!("hyperplonk_verify-{k}"));
-    let accept = verifier_sample(System::HyperPlonk, String::from("fp_vanilla"),k, || {
+    let accept = verifier_sample(System::HyperPlonk, String::from("fp_vanilla"), k, || {
         let mut transcript = Blake2sTranscript::from_proof((), proof.as_slice());
         HyperPlonk::verify(&vp, instances, &mut transcript, std_rng()).is_ok()
-    });    
+    });
 
+    let mut t1 = Blake2sTranscript::from_proof((), proof.as_slice());
+    let end_size = t1.into_proof().len();
 
-    let mut t1 = Blake2sTranscript::from_proof((),proof.as_slice());
-    let end_size = t1.into_proof().len();    
+    writeln!(
+        &mut (System::HyperPlonk).size_output(),
+        "{k} : {:?}",
+        (end_size) * 8
+    )
+    .unwrap();
 
-    writeln!(&mut (System::HyperPlonk).size_output(), "{k} : {:?}", (end_size)*8).unwrap();
-    
     assert!(accept);
 }
 fn bench_hyperplonk_24_8<C: CircuitExt<GoldilocksMont>>(k: usize) {
-    type Basefold = multilinear::Basefold<GoldilocksMont,Blake2s256,TwentyFour8>;
+    type Basefold = multilinear::Basefold<GoldilocksMont, Blake2s256, TwentyFour8>;
     type HyperPlonk = backend::hyperplonk::HyperPlonk<Basefold>;
 
     let circuit = C::rand(k, std_rng());
@@ -1423,39 +1424,39 @@ fn bench_hyperplonk_24_8<C: CircuitExt<GoldilocksMont>>(k: usize) {
     let param = HyperPlonk::setup(&circuit_info, std_rng()).unwrap();
     end_timer(timer);
 
-
-
     let timer = start_timer(|| format!("hyperplonk_preprocess-{k}"));
     let (pp, vp) = HyperPlonk::preprocess(&param, &circuit_info).unwrap();
     end_timer(timer);
-
 
     let proof = sample(System::HyperPlonk, String::from("Fp - ecdsa"), k, || {
         let _timer = start_timer(|| format!("hyperplonk_prove-{k}"));
         let mut transcript = Blake2sTranscript::default();
         HyperPlonk::prove(&pp, &circuit, &mut transcript, std_rng()).unwrap();
         let proofs = transcript.into_proof();
-	proofs
+        proofs
     });
 
-
     let _timer = start_timer(|| format!("hyperplonk_verify-{k}"));
-    let accept = verifier_sample(System::HyperPlonk, String::from("fp_vanilla"),k, || {
+    let accept = verifier_sample(System::HyperPlonk, String::from("fp_vanilla"), k, || {
         let mut transcript = Blake2sTranscript::from_proof((), proof.as_slice());
         HyperPlonk::verify(&vp, instances, &mut transcript, std_rng()).is_ok()
-    });    
+    });
 
+    let mut t1 = Blake2sTranscript::from_proof((), proof.as_slice());
+    let end_size = t1.into_proof().len();
 
-    let mut t1 = Blake2sTranscript::from_proof((),proof.as_slice());
-    let end_size = t1.into_proof().len();    
+    writeln!(
+        &mut (System::HyperPlonk).size_output(),
+        "{k} : {:?}",
+        (end_size) * 8
+    )
+    .unwrap();
 
-    writeln!(&mut (System::HyperPlonk).size_output(), "{k} : {:?}", (end_size)*8).unwrap();
-    
     assert!(accept);
 }
 
 fn bench_hyperplonk_25_8<C: CircuitExt<GoldilocksMont>>(k: usize) {
-    type Basefold = multilinear::Basefold<GoldilocksMont,Blake2s256,TwentyFive8>;
+    type Basefold = multilinear::Basefold<GoldilocksMont, Blake2s256, TwentyFive8>;
     type HyperPlonk = backend::hyperplonk::HyperPlonk<Basefold>;
 
     let circuit = C::rand(k, std_rng());
@@ -1467,52 +1468,45 @@ fn bench_hyperplonk_25_8<C: CircuitExt<GoldilocksMont>>(k: usize) {
     let param = HyperPlonk::setup(&circuit_info, std_rng()).unwrap();
     end_timer(timer);
 
-
-
     let timer = start_timer(|| format!("hyperplonk_preprocess-{k}"));
     let (pp, vp) = HyperPlonk::preprocess(&param, &circuit_info).unwrap();
     end_timer(timer);
-
 
     let proof = sample(System::HyperPlonk, String::from("Fp - ecdsa"), k, || {
         let _timer = start_timer(|| format!("hyperplonk_prove-{k}"));
         let mut transcript = Blake2sTranscript::default();
         HyperPlonk::prove(&pp, &circuit, &mut transcript, std_rng()).unwrap();
         let proofs = transcript.into_proof();
-	proofs
+        proofs
     });
 
-
     let _timer = start_timer(|| format!("hyperplonk_verify-{k}"));
-    let accept = verifier_sample(System::HyperPlonk, String::from("fp_vanilla"),k, || {
+    let accept = verifier_sample(System::HyperPlonk, String::from("fp_vanilla"), k, || {
         let mut transcript = Blake2sTranscript::from_proof((), proof.as_slice());
         HyperPlonk::verify(&vp, instances, &mut transcript, std_rng()).is_ok()
-    });    
+    });
 
+    let mut t1 = Blake2sTranscript::from_proof((), proof.as_slice());
+    let end_size = t1.into_proof().len();
 
-    let mut t1 = Blake2sTranscript::from_proof((),proof.as_slice());
-    let end_size = t1.into_proof().len();    
+    writeln!(
+        &mut (System::HyperPlonk).size_output(),
+        "{k} : {:?}",
+        (end_size) * 8
+    )
+    .unwrap();
 
-    writeln!(&mut (System::HyperPlonk).size_output(), "{k} : {:?}", (end_size)*8).unwrap();
-    
     assert!(accept);
 }
 
-
-
-
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum System {
-    HyperPlonk
-
+    HyperPlonk,
 }
 
 impl System {
     fn all() -> Vec<System> {
-        vec![
-            System::HyperPlonk,
-        ]
+        vec![System::HyperPlonk]
     }
 
     fn output_path(&self) -> String {
@@ -1545,7 +1539,7 @@ impl System {
             .append(true)
             .open(self.verifier_output_path())
             .unwrap()
-    }    
+    }
 
     fn support(&self, circuit: Circuit) -> bool {
         match self {
@@ -1565,39 +1559,36 @@ impl System {
 
         match self {
             System::HyperPlonk => bench_hyperplonk_256::<VanillaPlonk<Fr>>(k),
-/*
-	    match k {
-		10 => bench_hyperplonk_10_8::<VanillaPlonk<GoldilocksMont>>(k),
-		11 => bench_hyperplonk_11_8::<VanillaPlonk<GoldilocksMont>>(k),
-		12 => bench_hyperplonk_12_8::<VanillaPlonk<GoldilocksMont>>(k),
-		13 => bench_hyperplonk_13_8::<VanillaPlonk<GoldilocksMont>>(k),
-		14 => bench_hyperplonk_14_8::<VanillaPlonk<GoldilocksMont>>(k),
-		15 => bench_hyperplonk_15_8::<VanillaPlonk<GoldilocksMont>>(k),
-		16 => bench_hyperplonk_16_8::<VanillaPlonk<GoldilocksMont>>(k),
-		17 => bench_hyperplonk_17_8::<VanillaPlonk<GoldilocksMont>>(k),
-		18 => bench_hyperplonk_18_8::<VanillaPlonk<GoldilocksMont>>(k),
-		19 => bench_hyperplonk_19_8::<VanillaPlonk<GoldilocksMont>>(k),
-		20 => bench_hyperplonk_20_8::<VanillaPlonk<GoldilocksMont>>(k),
-		21 => bench_hyperplonk_21_8::<VanillaPlonk<GoldilocksMont>>(k),
-		22 => bench_hyperplonk_22_8::<VanillaPlonk<GoldilocksMont>>(k),
-		23 => bench_hyperplonk_23_8::<VanillaPlonk<GoldilocksMont>>(k),
-		24 => bench_hyperplonk_24_8::<VanillaPlonk<GoldilocksMont>>(k),
-		25 => bench_hyperplonk_25_8::<VanillaPlonk<GoldilocksMont>>(k),						
+            /*
+            match k {
+            10 => bench_hyperplonk_10_8::<VanillaPlonk<GoldilocksMont>>(k),
+            11 => bench_hyperplonk_11_8::<VanillaPlonk<GoldilocksMont>>(k),
+            12 => bench_hyperplonk_12_8::<VanillaPlonk<GoldilocksMont>>(k),
+            13 => bench_hyperplonk_13_8::<VanillaPlonk<GoldilocksMont>>(k),
+            14 => bench_hyperplonk_14_8::<VanillaPlonk<GoldilocksMont>>(k),
+            15 => bench_hyperplonk_15_8::<VanillaPlonk<GoldilocksMont>>(k),
+            16 => bench_hyperplonk_16_8::<VanillaPlonk<GoldilocksMont>>(k),
+            17 => bench_hyperplonk_17_8::<VanillaPlonk<GoldilocksMont>>(k),
+            18 => bench_hyperplonk_18_8::<VanillaPlonk<GoldilocksMont>>(k),
+            19 => bench_hyperplonk_19_8::<VanillaPlonk<GoldilocksMont>>(k),
+            20 => bench_hyperplonk_20_8::<VanillaPlonk<GoldilocksMont>>(k),
+            21 => bench_hyperplonk_21_8::<VanillaPlonk<GoldilocksMont>>(k),
+            22 => bench_hyperplonk_22_8::<VanillaPlonk<GoldilocksMont>>(k),
+            23 => bench_hyperplonk_23_8::<VanillaPlonk<GoldilocksMont>>(k),
+            24 => bench_hyperplonk_24_8::<VanillaPlonk<GoldilocksMont>>(k),
+            25 => bench_hyperplonk_25_8::<VanillaPlonk<GoldilocksMont>>(k),
 
-	    _ => {}
-            }
-	    */
-	}
-
+            _ => {}
+                }
+            */
+        }
     }
 }
-
 
 impl Display for System {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             System::HyperPlonk => write!(f, "hyperplonk"),
-
         }
     }
 }
@@ -1682,7 +1673,7 @@ fn create_output(systems: &[System]) {
     }
 }
 
-fn sample<T>(system: System, key:String, k: usize, prove: impl Fn() -> T) -> T {
+fn sample<T>(system: System, key: String, k: usize, prove: impl Fn() -> T) -> T {
     let mut proof = None;
     let sample_size = sample_size(k);
     let sum = iter::repeat_with(|| {
@@ -1698,7 +1689,7 @@ fn sample<T>(system: System, key:String, k: usize, prove: impl Fn() -> T) -> T {
     proof.unwrap()
 }
 
-fn verifier_sample<T>(system: System, key:String, k: usize, prove: impl Fn() -> T) -> T {
+fn verifier_sample<T>(system: System, key: String, k: usize, prove: impl Fn() -> T) -> T {
     let mut proof = None;
     let sample_size = sample_size(k);
     let sum = iter::repeat_with(|| {

@@ -6,8 +6,8 @@ pub mod frontend;
 pub mod pcs;
 pub mod piop;
 pub mod poly;
+mod snark;
 pub mod util;
-
 pub use halo2_curves;
 
 #[derive(Clone, Debug, PartialEq)]
