@@ -313,7 +313,7 @@ where
 
     fn commit(pp: &Self::ProverParam, poly: &Self::Polynomial) -> Result<Self::Commitment, Error> {
         validate_input("commit", pp.num_vars(), [poly], None)?;
-
+        
         let row_len = pp.brakedown.row_len();
 
         let codeword_len = pp.brakedown.codeword_len();
@@ -576,6 +576,8 @@ where
         let mut read_ts_col: Vec<F> = pp.trusted_commit.bh_evals[4].poly.to_vec();
         let mut final_ts_col: Vec<F> =
             pp.trusted_commit.bh_evals[5].poly[2 * row_len..4 * row_len].to_vec();
+        let memory1 = point_to_tensor(1, &first_sum_check_random_points).1;
+        let memory2 = point_to_tensor(1, &padded_u).1;
         let (
             (
                 w_init_circuit_layers_row,
@@ -594,11 +596,11 @@ where
                 grand_product_circuits(
                     2 * row_len,
                     basefold_poly_size,
-                    &h_row,
-                    &h_erow,
-                    &read_ts_row,
-                    &final_ts_row,
-                    &first_sum_check_random_points,
+                    &[h_row.clone()].to_vec(),
+                    &[h_erow.clone()].to_vec(),
+                    &[read_ts_row.clone()].to_vec(),
+                    &[final_ts_row.clone()].to_vec(),
+                    &memory1,
                     &gamma_tau,
                 )
             },
@@ -606,11 +608,11 @@ where
                 grand_product_circuits::<F>(
                     2 * row_len,
                     basefold_poly_size,
-                    &h_col,
-                    &h_ecol,
-                    &read_ts_col,
-                    &final_ts_col,
-                    &padded_u,
+                    &[h_col.clone()].to_vec(),
+                    &[h_ecol.clone()].to_vec(),
+                    &[read_ts_col.clone()].to_vec(),
+                    &[final_ts_col.clone()].to_vec(),
+                    &memory2,
                     &gamma_tau,
                 )
             },
@@ -618,10 +620,10 @@ where
 
         let random_points1 = gkr_prover::<F, H, S>(
             &[
-                &w_init_circuit_layers_row,
-                &s_circuit_layers_row,
-                &w_init_circuit_layers_col,
-                &s_circuit_layers_col,
+                &w_init_circuit_layers_row[0],
+                &s_circuit_layers_row[0],
+                &w_init_circuit_layers_col[0],
+                &s_circuit_layers_col[0],
             ]
             .to_vec(),
             transcript,
@@ -632,14 +634,15 @@ where
 
         let random_points2 = gkr_prover::<F, H, S>(
             &[
-                &w_update_circuit_layers_row,
-                &r_circuit_layers_row,
-                &w_update_circuit_layers_col,
-                &r_circuit_layers_col,
+                &w_update_circuit_layers_row[0],
+                &r_circuit_layers_row[0],
+                &w_update_circuit_layers_col[0],
+                &r_circuit_layers_col[0],
             ]
             .to_vec(),
             transcript,
         );
+
         let (
             (h_row_eval, h_col_eval, read_ts_row_eval),
             (read_ts_col_eval, h_erow_eval, h_ecol_eval),

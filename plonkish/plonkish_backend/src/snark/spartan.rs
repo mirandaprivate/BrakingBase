@@ -1,3 +1,6 @@
+use std::time::Instant;
+
+use super::batcheval::batch_eval_proof;
 use super::helper::{eR1CSmetadata, sparse_matrix_multiply, SparseRep};
 use crate::pcs::multilinear::brakingbase::{Brakingbase, BrakingbaseProverParams, BrakingbaseSpec};
 use crate::pcs::multilinear::brakingbase_helper::{par_fold_by_msb, point_to_tensor};
@@ -5,7 +8,7 @@ use crate::pcs::PolynomialCommitmentScheme;
 use crate::poly::Polynomial;
 use crate::util::hash::Hash;
 use crate::{poly::multilinear::MultilinearPolynomial, util::transcript::TranscriptWrite};
-use ff::PrimeField;
+use ff::{Field, PrimeField};
 use serde::{de::DeserializeOwned, Serialize};
 #[allow(non_snake_case)]
 pub fn prove_sat<F, H, S>(
@@ -17,7 +20,6 @@ pub fn prove_sat<F, H, S>(
     E: &MultilinearPolynomial<F>,
     W: &MultilinearPolynomial<F>,
     metadatas: eR1CSmetadata<F>,
-
     pp: &BrakingbaseProverParams<F, H>,
     transcript: &mut impl TranscriptWrite<
         <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::CommitmentChunk,
@@ -55,11 +57,11 @@ pub fn prove_sat<F, H, S>(
     // let E_eval_proof = evaluate(E.as_coeffs(), &rx, srs);
     // let W_eval_proof = evaluate(W.as_coeffs(), &ry, srs);
 
-    // let matrix_eval_point = [rx, ry].concat();
+    let matrix_eval_point = [rx, ry].concat();
 
-    // let metadatas = vec![metadatas.A, metadatas.B, metadatas.C];
+    let metadatas = vec![metadatas.A, metadatas.B, metadatas.C];
 
-    // let Eval_Proofs = batch_eval_proof(metadatas, &matrix_eval_point, srs, channel);
+    let Eval_Proofs = batch_eval_proof::<F, H, S>(metadatas, &matrix_eval_point, pp, transcript);
     // eR1CStranscript::new(
     //     first_sum_check_transcript,
     //     par_sum_check_transcript,
@@ -139,7 +141,9 @@ where
             eval[0],
         ]
         .to_vec();
-        transcript.write_field_elements(&polynomial_current_round);
+        transcript
+            .write_field_elements(&polynomial_current_round)
+            .unwrap();
 
         // channel.reseed_with_Fs(&eval);
 
@@ -155,7 +159,9 @@ where
         Cz = par_fold_by_msb(&Cz, r_i);
         E = par_fold_by_msb(&E, r_i);
     }
-    transcript.write_field_elements(&[Az[0], Bz[0], Cz[0], E[0]]);
+    transcript
+        .write_field_elements(&[Az[0], Bz[0], Cz[0], E[0]])
+        .unwrap();
     random_points
 }
 
@@ -228,6 +234,7 @@ where
         // par_sum_check_polys.push(Polynomial::new(comb_poly.clone()));
 
         // channel.reseed_with_Fs(&comb_poly);
+        transcript.write_field_elements(&comb_poly).unwrap();
 
         let r_i = transcript.squeeze_challenge();
         // let r_i = channel.get_random_point();
@@ -239,7 +246,9 @@ where
             batch[p] = par_fold_by_msb(&batch[p], r_i);
         }
     }
-    transcript.write_field_elements(&[batch[0][0], batch[1][0], batch[2][0]]);
+    transcript
+        .write_field_elements(&[batch[0][0], batch[1][0], batch[2][0]])
+        .unwrap();
 
     // ParSumCheckTranscript::new(
     //     par_sum_check_polys,
@@ -464,3 +473,24 @@ where
 //     // Horner evaluation
 //     p.iter().rev().fold(F::ZERO, |acc, &coeff| acc * x + coeff)
 // }
+
+#[test]
+fn test_basis() {
+    use crate::pcs::multilinear::brakingbase_helper::eq;
+    use halo2_curves::bn256::Fr;
+    use rand::rngs::OsRng;
+    let size = 10;
+    let mut rng = OsRng;
+    let random_points: Vec<Fr> = (0..size).map(|_| Fr::random(&mut rng)).collect();
+    let start_time = Instant::now();
+    let eq_bases = point_to_tensor::<Fr>(1, &random_points).1;
+    println!("time 1 {:?}", start_time.elapsed());
+    let mut eq_bases2 = Vec::new();
+    let start_time = Instant::now();
+    for i in 0..(1 << size) {
+        eq_bases2.push(eq(i, &random_points));
+    }
+    println!("time 2 {:?}", start_time.elapsed());
+
+    assert_eq!(eq_bases, eq_bases2);
+}

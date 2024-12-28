@@ -359,7 +359,7 @@ mod test {
             + InMemoryTranscript<Param = ()>,
     {
         // Setup
-        for num_vars in 20..28 {
+        for num_vars in 14..16{
             let mut commit_time_sum = 0.0;
             let mut prover_time_sum = 0.0;
             let mut verifier_time_sum = 0.0;

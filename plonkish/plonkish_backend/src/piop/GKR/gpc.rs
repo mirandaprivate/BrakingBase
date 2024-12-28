@@ -1,28 +1,35 @@
-use crate::pcs::multilinear::brakingbase_helper::eq;
 use ff::PrimeField;
 use rayon::iter::IntoParallelIterator;
 use rayon::iter::ParallelIterator;
 pub fn grand_product_circuits<F: PrimeField>(
     len1: usize,
-    basefold_poly_size: usize,
-    h: &Vec<F>,
-    h_erow_ecol: &Vec<F>,
-    read_ts: &Vec<F>,
-    final_ts: &Vec<F>,
-    eq_data: &Vec<F>,
+    len2: usize,
+    h: &Vec<Vec<F>>,           //rows
+    h_erow_ecol: &Vec<Vec<F>>, //e_rx
+    read_ts: &Vec<Vec<F>>,
+    final_ts: &Vec<Vec<F>>,
+    eq_data: &Vec<F>, //rx_basis
     gamma_tau: &Vec<F>,
-) -> (Vec<Vec<F>>, Vec<Vec<F>>, Vec<Vec<F>>, Vec<Vec<F>>) {
+) -> (Vec<Vec<Vec<F>>>, Vec<Vec<Vec<F>>>,Vec<Vec<Vec<F>>>, Vec<Vec<Vec<F>>>) {
+    let n_circuits = h.len();
     assert!(len1.is_power_of_two(), "len1 must be power of 2");
-    assert!(
-        basefold_poly_size.is_power_of_two(),
-        "basefold_poly_size must be power of 2"
-    );
+    assert!(len2.is_power_of_two(), "len2 must be power of 2");
 
     let depth1 = len1.trailing_zeros() as usize;
-    let depth2 = basefold_poly_size.trailing_zeros() as usize;
+    let depth2 = len2.trailing_zeros() as usize;
     let gamma_square = gamma_tau[0].square();
-    let ((w_init_circuit_layers, s_circuit_layers), (w_update_circuit_layers, r_circuit_layers)) =
-        rayon::join(
+
+    let mut w_init_circuit_layers = Vec::new();
+    let mut s_circuit_layers = Vec::new();
+    let mut w_update_circuit_layers = Vec::new();
+    let mut r_circuit_layers = Vec::new();
+
+    //TODO:- Multithread over n_circuits
+    for c in 0..n_circuits {
+        let (
+            (w_init_circuit_layer, s_circuit_layer),
+            (w_update_circuit_layer, r_circuit_layer),
+        ) = rayon::join(
             || {
                 let mut w_init_circuit_layers = Vec::new();
                 let mut s_circuit_layers = Vec::new();
@@ -30,8 +37,8 @@ pub fn grand_product_circuits<F: PrimeField>(
                     .into_par_iter()
                     .map(|i| {
                         let term =
-                            F::from_u128(i as u128) + gamma_tau[0] * eq(i, &eq_data) - gamma_tau[1];
-                        (term, term + gamma_square * final_ts[i])
+                            F::from_u128(i as u128) + gamma_tau[0] * eq_data[i] - gamma_tau[1];
+                        (term, term + gamma_square * final_ts[c][i])
                     })
                     .collect();
                 w_init_circuit_layers.push(w_init);
@@ -55,10 +62,12 @@ pub fn grand_product_circuits<F: PrimeField>(
                 (w_init_circuit_layers, s_circuit_layers)
             },
             || {
-                let (w_update, r): (Vec<F>, Vec<F>) = (0..basefold_poly_size)
+                let (w_update, r): (Vec<F>, Vec<F>) = (0..len2)
                     .into_par_iter()
                     .map(|i| {
-                        let term = h[i] + gamma_tau[0] * h_erow_ecol[i] + gamma_square * read_ts[i]
+                        let term = h[c][i]
+                            + gamma_tau[0] * h_erow_ecol[c][i]
+                            + gamma_square * read_ts[c][i]
                             - gamma_tau[1];
                         (term + gamma_square, term)
                     })
@@ -88,13 +97,18 @@ pub fn grand_product_circuits<F: PrimeField>(
                 (w_update_circuit_layers, r_circuit_layers)
             },
         );
-    assert_eq!(
-        w_init_circuit_layers[w_init_circuit_layers.len() - 1][0]
-            * w_update_circuit_layers[w_update_circuit_layers.len() - 1][0],
-        s_circuit_layers[s_circuit_layers.len() - 1][0]
-            * r_circuit_layers[r_circuit_layers.len() - 1][0],
-        "Incorrect circuits"
-    );
+        assert_eq!(
+            w_init_circuit_layer[w_init_circuit_layer.len() - 1][0]
+                * w_update_circuit_layer[w_update_circuit_layer.len() - 1][0],
+            s_circuit_layer[s_circuit_layer.len() - 1][0]
+                * r_circuit_layer[r_circuit_layer.len() - 1][0],
+            "Incorrect circuits"
+        );
+        w_init_circuit_layers.push(w_init_circuit_layer);
+        s_circuit_layers.push(s_circuit_layer);
+        w_update_circuit_layers.push(w_update_circuit_layer);
+        r_circuit_layers.push(r_circuit_layer);
+    }
     (
         w_init_circuit_layers,
         w_update_circuit_layers,

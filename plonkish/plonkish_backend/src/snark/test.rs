@@ -1,4 +1,4 @@
-#![allow(unused_imports)]
+#![allow(unused)]
 use super::helper::SparseRep;
 use crate::pcs::multilinear::brakingbase::{Brakingbase, BrakingbaseProverParams, BrakingbaseSpec};
 use crate::pcs::multilinear::{Basefold, BasefoldExtParams};
@@ -47,8 +47,8 @@ impl BasefoldExtParams for Five {
         false // Important. Else basefold commit encodes coefficients, not evaluations.
     }
 }
-type Pcs = Brakingbase<Fr, Blake2s256, Five>;
 
+type Pcs = Brakingbase<Fr, Blake2s256, Five>;
 #[test]
 pub fn er1cs_test() {
     let num_const = 1 << 7;
