@@ -313,7 +313,7 @@ where
 
     fn commit(pp: &Self::ProverParam, poly: &Self::Polynomial) -> Result<Self::Commitment, Error> {
         validate_input("commit", pp.num_vars(), [poly], None)?;
-        
+
         let row_len = pp.brakedown.row_len();
 
         let codeword_len = pp.brakedown.codeword_len();
@@ -822,6 +822,7 @@ where
         let start_time = Instant::now();
         let (p_p_prime_eval, mut batch_sum_check_rp) =
             batch_sum_check_prover::<F, H, S>(&mut polys, eqs, transcript);
+        transcript.write_field_element(&p_p_prime_eval);
 
         let (
             (h_val_eval, h_erow_eval, h_ecol_eval, h_row_eval),
@@ -1527,7 +1528,6 @@ pub(crate) fn batch_sum_check_prover<
                 *poly = par_fold_by_msb(poly, r_i);
             });
     }
-    transcript.write_field_element(&eqs[0][0]);
     (eqs[0][0], random_points)
 }
 

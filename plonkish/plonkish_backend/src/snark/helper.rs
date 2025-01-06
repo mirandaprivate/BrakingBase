@@ -3,7 +3,7 @@ use crate::util::hash::Hash;
 use crate::{
     pcs::PolynomialCommitmentScheme,
     poly::multilinear::MultilinearPolynomial,
-    util::transcript::{InMemoryTranscript, TranscriptRead, TranscriptWrite},
+    util::transcript::TranscriptWrite,
 };
 use ff::PrimeField;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};

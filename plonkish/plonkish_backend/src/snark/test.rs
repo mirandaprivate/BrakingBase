@@ -4,8 +4,9 @@ use crate::pcs::multilinear::brakingbase::{Brakingbase, BrakingbaseProverParams,
 use crate::pcs::multilinear::{Basefold, BasefoldExtParams};
 use crate::pcs::PolynomialCommitmentScheme;
 use crate::snark::helper::eR1CSmetadata;
-use crate::snark::spartan::prove_sat;
+use crate::snark::spartan::{prove_sat, verify_sat};
 use crate::util::code::BrakedownSpec;
+use crate::util::goldilocksMont::GoldilocksMont;
 use crate::util::hash::Hash;
 use crate::util::transcript::{Blake2s256Transcript, InMemoryTranscript};
 use crate::{
@@ -48,26 +49,42 @@ impl BasefoldExtParams for Five {
     }
 }
 
-type Pcs = Brakingbase<Fr, Blake2s256, Five>;
+type Pcs = Brakingbase<GoldilocksMont, Blake2s256, Five>;
 #[test]
 pub fn er1cs_test() {
-    let num_const = 1 << 7;
-    let num_inputs = 10;
+    let num_const = 1 << 5;
+    let num_inputs = 8;
     let num_var = num_const - 1;
-    let sparsity = 1;
+    let sparsity = 2;
     let num_vars = 11;
     let mut rng = OsRng;
     let poly_size = 1 << num_vars;
-    let mut transcript = Blake2s256Transcript::new(());
+
     let param = Pcs::setup(poly_size, 1, &mut rng).unwrap();
     let (pp, vp) = Pcs::trim(&param, poly_size, 1).unwrap();
+    let depth = (num_const as u32 * sparsity as u32).trailing_zeros();
+    let (A, B, C, z, E, W, u, PI) = construct_matrices::<GoldilocksMont>(
+        sparsity as usize,
+        num_const,
+        num_var as usize,
+        num_inputs,
+    );
 
-    let (A, B, C, z, E, W, u, PI) =
-        construct_matrices::<Fr>(sparsity as usize, num_const, num_var as usize, num_inputs);
-    let er1cs_metadata =
-        er1cs_commit::<Fr, Blake2s256, Five>(&A, &B, &C, &E, &W, &pp, sparsity, &mut transcript);
+    let mut transcript = Blake2s256Transcript::new(());
+
+    let er1cs_metadata = er1cs_commit::<GoldilocksMont, Blake2s256, Five>(
+        &A,
+        &B,
+        &C,
+        &E,
+        &W,
+        &pp,
+        sparsity,
+        &mut transcript,
+    );
+
     let time = Instant::now();
-    let er1cs_transcript = prove_sat::<Fr, Blake2s256, Five>(
+    prove_sat::<GoldilocksMont, Blake2s256, Five>(
         &A,
         &B,
         &C,
@@ -79,30 +96,26 @@ pub fn er1cs_test() {
         &pp,
         &mut transcript,
     );
+
+    let proof = transcript.into_proof();
     println!("Time to generate er1cs proof is {:?}", time.elapsed());
-    // println!(
-    //     "Proof size {:?}",
-    //     er1cs_transcript.to_bytes().len() as f64 / 1024f64
-    // );
-    // let mut channel = Channel::initialize_with_affine_point(
-    //     [
-    //         er1cs_commitments.E.commitment.to_affine(),
-    //         er1cs_commitments.W.commitment.to_affine(),
-    //     ]
-    //     .as_ref(),
-    // );
+
+    let size = proof.len() as f64 / 1024.0;
+    println!("Proof size {}KB", size);
+
+    let mut transcript = Blake2s256Transcript::from_proof((), proof.as_slice());
 
     let pi_indices: Vec<usize> = (0..1 << 5).collect();
-    let time = Instant::now();
-    // verify_sat(
-    //     er1cs_transcript,
-    //     er1cs_commitments,
-    //     u,
-    //     MultPolynomial::new(PI),
-    //     pi_indices,
-    //     &ver_key,
-    //     &mut channel,
-    // );
+
+    verify_sat::<GoldilocksMont, Blake2s256, Five>(
+        num_const,
+        sparsity,
+        &vp,
+        u,
+        MultilinearPolynomial::new(PI),
+        pi_indices,
+        &mut transcript,
+    );
     println!("Time to verify er1cs proof is {:?}", time.elapsed());
 }
 #[allow(unused)]
@@ -132,6 +145,7 @@ pub fn construct_matrices<F: PrimeField + Serialize + DeserializeOwned>(
         .enumerate()
         .take(PI.len())
         .for_each(|(i, W)| *W += PI[i]);
+
     let mut A: HashMap<usize, Vec<ColumnData<F>>> = HashMap::new();
     let mut B: HashMap<usize, Vec<ColumnData<F>>> = HashMap::new();
     let mut C: HashMap<usize, Vec<ColumnData<F>>> = HashMap::new();
@@ -160,8 +174,9 @@ pub fn construct_matrices<F: PrimeField + Serialize + DeserializeOwned>(
     E.par_iter_mut()
         .enumerate()
         .for_each(|(i, E)| *E = Az[i] * Bz[i] - u * Cz[i]);
-
-    assert_eq!(Az[0] * Bz[0], u * Cz[0] + E[0]);
+    for idx in 0..Az.len() {
+        assert_eq!(Az[idx] * Bz[idx], u * Cz[idx] + E[idx]);
+    }
 
     //TODO:- Check if Z is correct
     (
@@ -192,6 +207,7 @@ pub fn er1cs_commit<F: PrimeField + Serialize + DeserializeOwned, H: Hash, S: Br
     let B_metadata = &B.get_metadata(sparsity);
     let C_metadata = &C.get_metadata(sparsity);
     let start_time = Instant::now();
+
     <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::commit_and_write(pp, &E, transcript)
         .unwrap();
     <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::commit_and_write(pp, &W, transcript)

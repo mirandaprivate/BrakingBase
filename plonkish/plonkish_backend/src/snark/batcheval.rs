@@ -1,6 +1,7 @@
 use super::helper::SparseMetaData;
-use crate::pcs::multilinear::brakingbase::BrakingbaseSpec;
-use crate::pcs::multilinear::brakingbase_helper::{par_fold_by_msb, point_to_tensor};
+use super::sum_check::matrix_eval_sum_check;
+use crate::pcs::multilinear::brakingbase::{batch_sum_check_prover, BrakingbaseSpec};
+use crate::pcs::multilinear::brakingbase_helper::{evaluate_poly, point_to_tensor};
 use crate::piop::GKR::gkr::gkr_prover;
 use crate::piop::GKR::gpc::grand_product_circuits;
 use crate::poly::multilinear::MultilinearPolynomial;
@@ -14,12 +15,16 @@ use crate::{
     util::transcript::TranscriptWrite,
 };
 use ff::PrimeField;
-use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
+use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use serde::{de::DeserializeOwned, Serialize};
 
 pub fn batch_eval_proof<F, H, S>(
     sparse_metadata: Vec<SparseMetaData<F>>,
-    eval_point: &Vec<F>,
+    mut rx: Vec<F>,
+    mut ry: Vec<F>,
+    rx_basis_evals: Vec<F>,
+    E: &MultilinearPolynomial<F>,
+    W: &MultilinearPolynomial<F>,
     pp: &BrakingbaseProverParams<F, H>,
     transcript: &mut impl TranscriptWrite<
         <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::CommitmentChunk,
@@ -30,11 +35,7 @@ pub fn batch_eval_proof<F, H, S>(
     H: Hash,
     S: BrakingbaseSpec,
 {
-    let (rx, ry) = eval_point.split_at(eval_point.len() / 2);
-    // let rx_basis_evals = compute_coeff(&rx.to_vec());
-    // let ry_basis_evals = compute_coeff(&ry.to_vec());
-    let rx_basis_evals = point_to_tensor(1, &rx.to_vec()).1;
-    let ry_basis_evals = point_to_tensor(1, &ry.to_vec()).1;
+    let ry_basis_evals = point_to_tensor(1, &ry.clone()).1;
 
     let e_rx: Vec<Vec<F>> = sparse_metadata
         .iter()
@@ -71,12 +72,6 @@ pub fn batch_eval_proof<F, H, S>(
         })
         .collect();
 
-    // let e_rx_polys: Vec<Vec<F>> = e_rx.iter().map(|rx| rx.to_vec()).collect();
-    // let e_ry_polys: Vec<Vec<F>> = e_ry.iter().map(|ry| ry.to_vec()).collect();
-
-    // let e_rx_polys: Vec<&Vec<F>> = e_rx.iter().collect();
-    // let e_ry_polys: Vec<&Vec<F>> = e_ry.iter().collect();
-
     e_rx.iter().for_each(|rx_poly| {
         <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::commit_and_write(
             pp,
@@ -95,32 +90,13 @@ pub fn batch_eval_proof<F, H, S>(
         .unwrap();
     });
 
-    // let val: Vec<&Vec<F>> = sparse_metadata
-    //     .iter()
-    //     .map(|metadata| metadata.val.as_coeffs())
-    //     .collect();
+    let val: Vec<Vec<F>> = sparse_metadata
+        .iter()
+        .map(|metadata| metadata.val.clone().into_evals())
+        .collect();
 
-    let batch_eval_sum_check_rp =
-        batch_eval_sum_check::<F, H, S>(&sparse_metadata, e_rx.clone(), e_ry.clone(), transcript);
-
-    // let e_rx_evals_sum_check: Vec<F> = sum_check_transcript
-    //     .e_rx
-    //     .iter()
-    //     .map(|poly| poly.get_coeff(0))
-    //     .collect();
-    // let e_ry_evals_sum_check: Vec<F> = sum_check_transcript
-    //     .e_ry
-    //     .iter()
-    //     .map(|poly| poly.get_coeff(0))
-    //     .collect();
-    // let val_evals_sum_check: Vec<F> = sum_check_transcript
-    //     .val
-    //     .iter()
-    //     .map(|poly| poly.get_coeff(0))
-    //     .collect();
-
-    // let rx_basis_evals = MultilinearPolynomial<F>::new(rx_basis_evals);
-    // let ry_basis_evals = MultPolynomial::new(ry_basis_evals);
+    let be_sc_rp =
+        matrix_eval_sum_check::<F, H, S>(val.clone(), e_rx.clone(), e_ry.clone(), transcript);
 
     let rows: Vec<Vec<F>> = sparse_metadata
         .iter()
@@ -130,18 +106,22 @@ pub fn batch_eval_proof<F, H, S>(
         .iter()
         .map(|metadata| metadata.col.evals().to_vec())
         .collect();
+
     let read_ts_for_rows: Vec<Vec<F>> = sparse_metadata
         .iter()
         .map(|metadata| metadata.timestamps.read_ts_row.evals().to_vec())
         .collect();
+
     let read_ts_for_cols: Vec<Vec<F>> = sparse_metadata
         .iter()
         .map(|metadata| metadata.timestamps.read_ts_col.evals().to_vec())
         .collect();
+
     let final_ts_for_rows: Vec<Vec<F>> = sparse_metadata
         .iter()
         .map(|metadata| metadata.timestamps.final_ts_row.evals().to_vec())
         .collect();
+
     let final_ts_for_cols: Vec<Vec<F>> = sparse_metadata
         .iter()
         .map(|metadata| metadata.timestamps.final_ts_col.evals().to_vec())
@@ -188,9 +168,7 @@ pub fn batch_eval_proof<F, H, S>(
         },
     );
 
-    let circuit2_depth = rows[0].len().trailing_zeros() as usize;
-
-    let random_points1 = gkr_prover::<F, H, S>(
+    let mut random_points1 = gkr_prover::<F, H, S>(
         &w_init_circuit_layers_row
             .iter()
             .chain(s_circuit_layers_row.iter())
@@ -210,271 +188,233 @@ pub fn batch_eval_proof<F, H, S>(
         transcript,
     );
 
-    // let final_point_basis_evals = compute_coeff(&gkr_transcript1.final_layer_point);
+    let (
+        (rows_evals, cols_evals, read_ts_for_rows_evals, read_ts_for_cols_evals),
+        (e_rx_evals, e_ry_evals, final_ts_for_rows_evals, final_ts_for_cols_evals),
+    ) = rayon::join(
+        || {
+            (
+                rows.iter()
+                    .map(|poly| evaluate_poly(poly, &random_points1))
+                    .collect::<Vec<F>>(),
+                cols.iter()
+                    .map(|poly| evaluate_poly(poly, &random_points1))
+                    .collect::<Vec<F>>(),
+                read_ts_for_rows
+                    .iter()
+                    .map(|poly| evaluate_poly(poly, &random_points1))
+                    .collect::<Vec<F>>(),
+                read_ts_for_cols
+                    .iter()
+                    .map(|poly| evaluate_poly(poly, &random_points1))
+                    .collect::<Vec<F>>(),
+            )
+        },
+        || {
+            (
+                e_rx.iter()
+                    .map(|poly| evaluate_poly(poly, &random_points1))
+                    .collect::<Vec<F>>(),
+                e_ry.iter()
+                    .map(|poly| evaluate_poly(poly, &random_points1))
+                    .collect::<Vec<F>>(),
+                final_ts_for_rows
+                    .iter()
+                    .map(|poly| evaluate_poly(poly, &random_points2))
+                    .collect::<Vec<F>>(),
+                final_ts_for_cols
+                    .iter()
+                    .map(|poly| evaluate_poly(poly, &random_points2))
+                    .collect::<Vec<F>>(),
+            )
+        },
+    );
 
-    // let final_ts_evals_row_mem_check: Vec<F> = final_ts_for_rows
-    //     .into_iter()
-    //     .map(|final_ts| {
-    //         final_ts
-    //             .par_iter()
-    //             .zip(final_point_basis_evals.par_iter())
-    //             .map(|(coeff, basis)| *coeff * *basis)
-    //             .reduce(|| F::ZERO, |acc, g| acc + g)
-    //     })
-    //     .collect();
+    transcript.write_field_elements(&rows_evals).unwrap();
+    transcript.write_field_elements(&cols_evals).unwrap();
+    transcript
+        .write_field_elements(&read_ts_for_rows_evals)
+        .unwrap();
+    transcript
+        .write_field_elements(&read_ts_for_cols_evals)
+        .unwrap();
+    transcript.write_field_elements(&e_rx_evals).unwrap();
+    transcript.write_field_elements(&e_ry_evals).unwrap();
+    transcript
+        .write_field_elements(&final_ts_for_rows_evals)
+        .unwrap();
+    transcript
+        .write_field_elements(&final_ts_for_cols_evals)
+        .unwrap();
 
-    // let final_ts_evals_col_mem_check: Vec<F> = final_ts_for_cols
-    //     .into_iter()
-    //     .map(|final_ts| {
-    //         final_ts
-    //             .par_iter()
-    //             .zip(final_point_basis_evals.par_iter())
-    //             .map(|(coeff, basis)| *coeff * *basis)
-    //             .reduce(|| F::ZERO, |acc, g| acc + g)
-    //     })
-    //     .collect();
-
-    // let final_point_basis_evals = compute_coeff(&gkr_transcript2.final_layer_point);
-
-    // let row_evals_mem_check: Vec<_> = rows
-    //     .iter()
-    //     .map(|row| {
-    //         row.par_iter()
-    //             .zip(final_point_basis_evals.par_iter())
-    //             .map(|(coeff, basis)| *coeff * *basis)
-    //             .reduce(|| F::ZERO, |acc, g| acc + g)
-    //     })
-    //     .collect();
-    // let col_evals_mem_check: Vec<_> = cols
-    //     .iter()
-    //     .map(|col| {
-    //         col.par_iter()
-    //             .zip(final_point_basis_evals.par_iter())
-    //             .map(|(coeff, basis)| *coeff * *basis)
-    //             .reduce(|| F::ZERO, |acc, g| acc + g)
-    //     })
-    //     .collect();
-    // let read_ts_evals_row_mem_check: Vec<_> = read_ts_for_rows
-    //     .iter()
-    //     .map(|read_ts_row| {
-    //         read_ts_row
-    //             .par_iter()
-    //             .zip(final_point_basis_evals.par_iter())
-    //             .map(|(coeff, basis)| *coeff * *basis)
-    //             .reduce(|| F::ZERO, |acc, g| acc + g)
-    //     })
-    //     .collect();
-    // let read_ts_evals_col_mem_check: Vec<_> = read_ts_for_cols
-    //     .iter()
-    //     .map(|read_ts_col| {
-    //         read_ts_col
-    //             .par_iter()
-    //             .zip(final_point_basis_evals.par_iter())
-    //             .map(|(coeff, basis)| *coeff * *basis)
-    //             .reduce(|| F::ZERO, |acc, g| acc + g)
-    //     })
-    //     .collect();
-    // let e_rx_evals_mem_check: Vec<_> = e_rx_polys
-    //     .iter()
-    //     .map(|e_rx| {
-    //         e_rx.par_iter()
-    //             .zip(final_point_basis_evals.par_iter())
-    //             .map(|(coeff, basis)| *coeff * *basis)
-    //             .reduce(|| F::ZERO, |acc, g| acc + g)
-    //     })
-    //     .collect();
-    // let e_ry_evals_mem_check: Vec<_> = e_ry_polys
-    //     .iter()
-    //     .map(|e_ry| {
-    //         e_ry.par_iter()
-    //             .zip(final_point_basis_evals.par_iter())
-    //             .map(|(coeff, basis)| *coeff * *basis)
-    //             .reduce(|| F::ZERO, |acc, g| acc + g)
-    //     })
-    //     .collect();
-    // let batch_eval_coeffs_sum_check = channel.get_random_points(3 * sparse_metadata.len());
-
-    // let sum_check_eval_proof = batch_eval(
-    //     &[e_rx_refs, e_ry_refs, val].concat(),
-    //     &[
-    //         e_rx_evals_sum_check.clone(),
-    //         e_ry_evals_sum_check.clone(),
-    //         val_evals_sum_check.clone(),
-    //     ]
-    //     .concat(),
-    //     &sum_check_transcript.random_points,
-    //     &batch_eval_coeffs_sum_check,
-    //     srs,
-    // );
-
-    // let batch_eval_coeffs_gkr = channel.get_random_points(8 * sparse_metadata.len());
-
-    // let rows: Vec<&Vec<F>> = sparse_metadata
-    //     .iter()
-    //     .map(|metadata| metadata.row.as_coeffs())
-    //     .collect();
-    // let cols: Vec<&Vec<F>> = sparse_metadata
-    //     .iter()
-    //     .map(|metadata| metadata.col.as_coeffs())
-    //     .collect();
-    // let read_ts_for_rows: Vec<&Vec<F>> = sparse_metadata
-    //     .iter()
-    //     .map(|metadata| metadata.timestamps.read_ts_row.as_coeffs())
-    //     .collect();
-    // let read_ts_for_cols: Vec<&Vec<F>> = sparse_metadata
-    //     .iter()
-    //     .map(|metadata| metadata.timestamps.read_ts_col.as_coeffs())
-    //     .collect();
-    // let final_ts_for_rows: Vec<&Vec<F>> = sparse_metadata
-    //     .iter()
-    //     .map(|metadata| metadata.timestamps.final_ts_row.as_coeffs())
-    //     .collect();
-    // let final_ts_for_cols: Vec<&Vec<F>> = sparse_metadata
-    //     .iter()
-    //     .map(|metadata| metadata.timestamps.final_ts_col.as_coeffs())
-    //     .collect();
-
-    // let e_rx_refs: Vec<&Vec<F>> = e_rx.iter().map(|rx| rx).collect();
-    // let e_ry_refs: Vec<&Vec<F>> = e_ry.iter().map(|ry| ry).collect();
-
-    // let gkr_batch_eval_proof1 = batch_eval(
-    //     &[final_ts_for_rows, final_ts_for_cols].concat(),
-    //     &[
-    //         final_ts_evals_row_mem_check.clone(),
-    //         final_ts_evals_col_mem_check.clone(),
-    //     ]
-    //     .concat(),
-    //     &gkr_transcript1.final_layer_point,
-    //     &batch_eval_coeffs_gkr,
-    //     srs,
-    // );
-    // let gkr_batch_eval_proof2 = batch_eval(
-    //     &[
-    //         rows,
-    //         cols,
-    //         read_ts_for_rows,
-    //         read_ts_for_cols,
-    //         e_rx_refs,
-    //         e_ry_refs,
-    //     ]
-    //     .concat(),
-    //     &[
-    //         row_evals_mem_check.clone(),
-    //         col_evals_mem_check.clone(),
-    //         read_ts_evals_row_mem_check.clone(),
-    //         read_ts_evals_col_mem_check.clone(),
-    //         e_rx_evals_mem_check.clone(),
-    //         e_ry_evals_mem_check.clone(),
-    //     ]
-    //     .concat(),
-    //     &gkr_transcript2.final_layer_point,
-    //     &batch_eval_coeffs_gkr,
-    //     srs,
-    // );
-
-    // BatchSparseEvalProof::new(
-    //     sum_check_transcript.clone(),
-    //     gkr_transcript1,
-    //     gkr_transcript2,
-    //     e_rx_evals_sum_check,
-    //     e_ry_evals_sum_check,
-    //     val_evals_sum_check,
-    //     sum_check_eval_proof,
-    //     e_rx_commits,
-    //     e_ry_commits,
-    //     final_ts_evals_row_mem_check,
-    //     final_ts_evals_col_mem_check,
-    //     row_evals_mem_check,
-    //     col_evals_mem_check,
-    //     read_ts_evals_row_mem_check,
-    //     read_ts_evals_col_mem_check,
-    //     e_rx_evals_mem_check,
-    //     e_ry_evals_mem_check,
-    //     gkr_batch_eval_proof1,
-    //     gkr_batch_eval_proof2,
-    //     circuit2_depth,
-    // )
-}
-
-//TODO:- Convert sum check from msb to lsb form
-pub fn batch_eval_sum_check<F, H, S>(
-    sparse_metadata: &Vec<SparseMetaData<F>>,
-    mut e_rx: Vec<Vec<F>>,
-    mut e_ry: Vec<Vec<F>>,
-    transcript: &mut impl TranscriptWrite<
-        <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::CommitmentChunk,
-        F,
-    >,
-) -> Vec<F>
-where
-    F: PrimeField + Serialize + DeserializeOwned,
-    H: Hash,
-    S: BrakingbaseSpec,
-{
-    let mut val: Vec<Vec<F>> = sparse_metadata
-        .iter()
-        .map(|metadata| metadata.val.clone().into_evals())
+    let batch_sc_rc = transcript.squeeze_challenges(35);
+    let (mut poly1, mut poly2): (Vec<F>, Vec<F>) = (0..E.evals().len())
+        .into_par_iter()
+        .map(|idx| {
+            (
+                E.evals()[idx] * batch_sc_rc[0],
+                W.evals()[idx] * batch_sc_rc[1],
+            )
+        })
         .collect();
 
-    let sum_check_rounds = val[0].len().trailing_zeros() as usize;
+    let vec2 = batch_sc_rc.iter().skip(2).take(9).collect::<Vec<&F>>();
+    let poly3 = (0..e_rx[0].len())
+        .into_par_iter()
+        .map(|idx| {
+            let vec1 = vec![
+                e_rx[0][idx],
+                e_rx[1][idx],
+                e_rx[2][idx],
+                e_ry[0][idx],
+                e_ry[1][idx],
+                e_ry[2][idx],
+                val[0][idx],
+                val[1][idx],
+                val[2][idx],
+            ];
+            vec1.iter()
+                .zip(vec2.iter())
+                .fold(F::ZERO, |acc, (value1, value2)| acc + (*value1 * *value2))
+        })
+        .collect::<Vec<F>>();
 
-    let random_coeffs = transcript.squeeze_challenges(3);
-    // let random_coeffs = channel.get_random_points(3);
-    // let mut sum_check_polynomials: Vec<Polynomial> = Vec::new();
-    let mut sum_check_random_points: Vec<F> = vec![F::ZERO; sum_check_rounds];
+    let vec2 = batch_sc_rc.iter().skip(11).take(18).collect::<Vec<&F>>();
+    let poly4 = (0..e_rx[0].len())
+        .into_par_iter()
+        .map(|idx| {
+            let vec1 = vec![
+                e_rx[0][idx],
+                e_rx[1][idx],
+                e_rx[2][idx],
+                e_ry[0][idx],
+                e_ry[1][idx],
+                e_ry[2][idx],
+                rows[0][idx],
+                rows[1][idx],
+                rows[2][idx],
+                cols[0][idx],
+                cols[1][idx],
+                cols[2][idx],
+                read_ts_for_rows[0][idx],
+                read_ts_for_rows[1][idx],
+                read_ts_for_rows[2][idx],
+                read_ts_for_cols[0][idx],
+                read_ts_for_cols[1][idx],
+                read_ts_for_cols[2][idx],
+            ];
+            vec1.iter()
+                .zip(vec2.iter())
+                .fold(F::ZERO, |acc, (value1, value2)| acc + (*value1 * *value2))
+        })
+        .collect::<Vec<F>>();
 
-    for i in 0..sum_check_rounds {
-        let halfsize = 1usize << (sum_check_rounds - 1usize - i);
+    let vec2 = batch_sc_rc.iter().skip(29).take(6).collect::<Vec<&F>>();
+    let mut poly5 = (0..final_ts_for_rows[0].len())
+        .into_par_iter()
+        .map(|idx| {
+            let vec1 = vec![
+                final_ts_for_rows[0][idx],
+                final_ts_for_rows[1][idx],
+                final_ts_for_rows[2][idx],
+                final_ts_for_cols[0][idx],
+                final_ts_for_cols[1][idx],
+                final_ts_for_cols[2][idx],
+            ];
+            vec1.iter()
+                .zip(vec2.iter())
+                .fold(F::ZERO, |acc, (value1, value2)| acc + (*value1 * *value2))
+        })
+        .collect::<Vec<F>>();
 
-        let mut combined_poly = [F::ZERO; 4];
-        let mut eval = vec![[F::ZERO; 4]; 3];
+    extend_if_required(
+        poly3.len(),
+        &mut poly1,
+        &mut poly2,
+        &mut poly5,
+        &mut random_points1,
+        &mut rx,
+        &mut ry,
+    );
+    let ((eq_random_points1, eq_random_points2), (eq_be_sc_rp, rx_basis_evals, ry_basis_evals)) =
+        rayon::join(
+            || {
+                (
+                    point_to_tensor(1, &random_points1).1,
+                    point_to_tensor(1, &random_points2).1,
+                )
+            },
+            || {
+                (
+                    point_to_tensor(1, &be_sc_rp).1,
+                    point_to_tensor(1, &rx).1,
+                    point_to_tensor(1, &ry).1,
+                )
+            },
+        );
+    let mut polys = Vec::new();
+    polys.push(poly1);
+    polys.push(poly2);
+    polys.push(poly3);
+    polys.push(poly4);
+    polys.push(poly5);
+    let mut eqs = Vec::new();
+    eqs.push(rx_basis_evals);
+    eqs.push(ry_basis_evals);
+    eqs.push(eq_be_sc_rp);
+    eqs.push(eq_random_points1);
+    eqs.push(eq_random_points2);
+    let (_, batch_sum_check_rp) = batch_sum_check_prover::<F, H, S>(&mut polys, eqs, transcript);
+}
 
-        for c in 0..sparse_metadata.len() {
-            eval[c] = (0..halfsize).into_iter().fold([F::ZERO; 4], |mut acc, k| {
-                acc[0] += val[c][2 * k] * e_rx[c][2 * k] * e_ry[c][2 * k];
-
-                acc[1] += val[c][2 * k + 1] * e_rx[c][2 * k + 1] * e_ry[c][2 * k + 1];
-
-                acc[2] += (val[c][2 * k].double() - val[c][2 * k + 1])
-                    * (e_rx[c][2 * k].double() - e_rx[c][2 * k + 1])
-                    * (e_ry[c][2 * k].double() - e_ry[c][2 * k + 1]);
-
-                acc[3] += (val[c][2 * k + 1].double() - val[c][2 * k])
-                    * (e_rx[c][2 * k + 1].double() - e_rx[c][2 * k])
-                    * (e_ry[c][2 * k + 1].double() - e_ry[c][2 * k]);
-
-                acc
-            });
-            // len_4_interpolate(&mut eval[c])
+fn extend_if_required<F: PrimeField + Serialize + DeserializeOwned>(
+    max_len: usize,
+    poly1: &mut Vec<F>,
+    poly2: &mut Vec<F>,
+    poly5: &mut Vec<F>,
+    random_points1: &mut Vec<F>,
+    rx: &mut Vec<F>,
+    ry: &mut Vec<F>,
+) {
+    let mut poly_len = poly1.len();
+    let mut random_pt_len = random_points1.len();
+    println!("random pt len: {}", random_pt_len);
+    println!("random pt len: {}", max_len.trailing_zeros());
+    if poly_len != max_len {
+        let temp1 = poly1.clone();
+        let temp2 = poly2.clone();
+        let temp3 = poly5.clone();
+        let temp4 = random_points1.clone();
+        let temp5 = rx.clone();
+        let temp6 = ry.clone();
+        while poly_len != max_len {
+            poly1.extend(temp1.clone());
+            poly2.extend(temp2.clone());
+            poly5.extend(temp3.clone());
+            poly_len = poly1.len();
         }
-
-        for c in 0..sparse_metadata.len() {
-            for k in 0..4 {
-                combined_poly[k] += random_coeffs[c] * eval[c][k]
-            }
-        }
-
-        // channel.reseed_with_scalars(&combined_poly);
-
-        // let r_i = channel.get_random_point();
-        let r_i = transcript.squeeze_challenge();
-
-        sum_check_random_points[sum_check_rounds - 1 - i] = r_i;
-
-        // sum_check_polynomials.push(Polynomial::new(combined_poly.to_vec()));
-
-        for k in 0..sparse_metadata.len() {
-            e_rx[k] = par_fold_by_msb(&e_rx[k], r_i);
-            e_ry[k] = par_fold_by_msb(&e_ry[k], r_i);
-            val[k] = par_fold_by_msb(&val[k], r_i);
+        while random_pt_len != max_len.trailing_zeros() as usize {
+            random_points1.extend(temp4.clone());
+            rx.extend(temp5.clone());
+            ry.extend(temp6.clone());
+            random_pt_len = random_points1.len();
         }
     }
-    sum_check_random_points
-    // BatchSpartanSumCheckTranscript::new(
-    //     sum_check_polynomials,
-    //     sum_check_random_points,
-    //     e_rx,
-    //     e_ry,
-    //     val,
-    // )
 }
+
+// fn extend_if_required_copy<F: PrimeField + Serialize + DeserializeOwned>(
+//     max_len: usize,
+//     polys: Vec<&mut Vec<F>>,
+// ) {
+//     let mut actual_length = polys[0].len();
+//     if actual_length != max_len {
+//         let temp: Vec<Vec<F>> = polys.iter().cloned().map(|p| p.clone()).collect();
+//         while actual_length != max_len {
+//             polys
+//                 .into_iter()
+//                 .zip(temp.iter())
+//                 .for_each(|(p, t)| p.extend(t));
+//             actual_length = polys[0].len();
+//         }
+//     }
+// }
