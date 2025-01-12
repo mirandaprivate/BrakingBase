@@ -10,6 +10,7 @@ use rayon::iter::{
 
 pub fn evaluate_poly<F: PrimeField>(coeffs: &Vec<F>, point: &Vec<F>) -> F {
     let tensor_point = point_to_tensor(1, point).1;
+    assert_eq!(coeffs.len(), tensor_point.len());
     coeffs
         .into_par_iter()
         .zip(tensor_point.into_par_iter())

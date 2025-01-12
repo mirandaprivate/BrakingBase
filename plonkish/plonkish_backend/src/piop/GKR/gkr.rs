@@ -51,7 +51,6 @@ pub fn gkr_prover<F: PrimeField + Serialize + DeserializeOwned, H: Hash, S: Brak
     });
 
     let n_circuits = circuits.len();
-    println!("n_circuits is {:?}", n_circuits);
     //This vector contains the values of the circuits at depth 1 i.e. the layer below the output layer.
     let mut final_values = Vec::new();
     for c in 0..n_circuits {

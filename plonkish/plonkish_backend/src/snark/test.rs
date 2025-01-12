@@ -53,12 +53,23 @@ type Pcs = Brakingbase<GoldilocksMont, Blake2s256, Five>;
 #[test]
 pub fn er1cs_test() {
     let num_const = 1 << 5;
-    let num_inputs = 8;
+    let num_pi_inputs: usize = 8;
     let num_var = num_const - 1;
-    let sparsity = 2;
-    let num_vars = 11;
+    let sparsity: usize = 1;
+
     let mut rng = OsRng;
-    let poly_size = 1 << num_vars;
+    assert_eq!(
+        sparsity.is_power_of_two(),
+        true,
+        "sparsity must be a power of 2"
+    );
+    assert_eq!(
+        num_pi_inputs.is_power_of_two(),
+        true,
+        "num_pi_inputs must be a power of 2"
+    );
+
+    let poly_size = 1 << 11; //No of queries are fixed for variables in range [10, 26]
 
     let param = Pcs::setup(poly_size, 1, &mut rng).unwrap();
     let (pp, vp) = Pcs::trim(&param, poly_size, 1).unwrap();
@@ -67,7 +78,7 @@ pub fn er1cs_test() {
         sparsity as usize,
         num_const,
         num_var as usize,
-        num_inputs,
+        num_pi_inputs,
     );
 
     let mut transcript = Blake2s256Transcript::new(());

@@ -11,7 +11,6 @@ use crate::util::transcript::{TranscriptRead, TranscriptWrite};
 use ff::PrimeField;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use serde::{de::DeserializeOwned, Serialize};
-
 #[allow(non_snake_case)]
 pub fn first_layer_sum_check<F, H, S>(
     A: &SparseRep<F>,
@@ -266,6 +265,7 @@ where
     }
     let a_b_c_evals = transcript.read_field_elements(3).unwrap();
     let PI_eval = evaluate_PI(pi_indices, PI, &r);
+
     let w_eval = transcript.read_field_element().unwrap();
     let Z_final_eval = PI_eval + w_eval;
 
@@ -388,7 +388,6 @@ where
     S: BrakingbaseSpec,
 {
     let rounds = ((num_const * sparsity) as u32).trailing_zeros() as usize;
-
     let mut current_sum = initial_evaluation;
 
     let mut r = vec![F::ZERO; rounds];
@@ -445,13 +444,13 @@ pub fn evaluate_PI<F: PrimeField + Serialize + DeserializeOwned>(
 }
 
 pub fn batch_sum_check_verifier<F, H, S>(
-    r_x: &Vec<&Vec<F>>,
+    mut r_x: Vec<Vec<F>>,
     claimed_eval: F,
     transcript: &mut impl TranscriptRead<
         <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::CommitmentChunk,
         F,
     >,
-    batch_sum_check_random_combiner: &Vec<F>,
+    batch_sc_rc: &Vec<F>,
 ) where
     F: PrimeField + Serialize + DeserializeOwned,
     H: Hash,
@@ -459,6 +458,7 @@ pub fn batch_sum_check_verifier<F, H, S>(
 {
     let mut actual_result = claimed_eval;
     let mut r_y = Vec::new();
+
     for var in 0..r_x[2].len() {
         let poly = transcript.read_field_elements(3).unwrap();
         let mut previous_result = poly[0];
@@ -472,60 +472,148 @@ pub fn batch_sum_check_verifier<F, H, S>(
 
         actual_result = eval(&poly, r);
     }
-    //final layer result
-    // let mut expected_result = F::ZERO;
-    // let p_p_prime_eval = transcript.read_field_element().unwrap();
-    // let h_val_eval = transcript.read_field_element().unwrap();
-    // let h_erow_eval = transcript.read_field_element().unwrap();
-    // let h_ecol_eval = transcript.read_field_element().unwrap();
-    // let h_row_eval = transcript.read_field_element().unwrap();
-    // let h_col_eval = transcript.read_field_element().unwrap();
-    // let read_ts_row_eval = transcript.read_field_element().unwrap();
-    // let read_ts_col_eval = transcript.read_field_element().unwrap();
-    // let extended_final_ts_row_col_eval = transcript.read_field_element().unwrap();
+    let rows_evals = transcript.read_field_elements(3).unwrap();
+    let cols_evals = transcript.read_field_elements(3).unwrap();
+    let read_ts_for_rows_evals = transcript.read_field_elements(3).unwrap();
+    let read_ts_for_cols_evals = transcript.read_field_elements(3).unwrap();
+    let e_rx_evals = transcript.read_field_elements(3).unwrap();
+    let e_ry_evals = transcript.read_field_elements(3).unwrap();
+    let final_ts_for_rows_evals = transcript.read_field_elements(3).unwrap();
+    let final_ts_for_cols_evals = transcript.read_field_elements(3).unwrap();
+    let val_evals = transcript.read_field_elements(3).unwrap();
+    let E_eval = transcript.read_field_element().unwrap();
+    let W_eval = transcript.read_field_element().unwrap();
 
-    // let evals = [
-    //     p_p_prime_eval,
-    //     h_erow_eval,
-    //     h_ecol_eval,
-    //     h_val_eval,
-    //     h_row_eval,
-    //     h_col_eval,
-    //     read_ts_row_eval,
-    //     read_ts_col_eval,
-    //     extended_final_ts_row_col_eval,
-    // ]
-    // .to_vec();
+    extend_if_required::<F>(&mut r_x);
 
-    // let evaluations = [
-    //     p_p_prime_eval,
-    //     (batch_sum_check_random_combiner[3] * h_val_eval)
-    //         + (batch_sum_check_random_combiner[4] * h_erow_eval)
-    //         + (batch_sum_check_random_combiner[5] * h_ecol_eval),
-    //     (batch_sum_check_random_combiner[6] * h_erow_eval)
-    //         + (batch_sum_check_random_combiner[7] * h_ecol_eval)
-    //         + (batch_sum_check_random_combiner[8] * h_row_eval)
-    //         + (batch_sum_check_random_combiner[9] * h_col_eval)
-    //         + (batch_sum_check_random_combiner[10] * read_ts_row_eval)
-    //         + (batch_sum_check_random_combiner[11] * read_ts_col_eval),
-    //     batch_sum_check_random_combiner[12] * extended_final_ts_row_col_eval,
-    // ]
-    // .to_vec();
-    // let first_three_combined = (0..3).fold(F::ZERO, |acc, i| {
-    //     acc + (batch_sum_check_random_combiner[i] * evaluate_eq(&r_x[i], &r_y))
-    // });
-    // let eq_evaluations: Vec<F> = (3..r_x.len()).map(|i| evaluate_eq(&r_x[i], &r_y)).collect();
-    // let mut combined_eq_evaluations = [first_three_combined].to_vec();
-    // combined_eq_evaluations.extend(&eq_evaluations);
+    let r_x_evals = r_x
+        .iter()
+        .map(|rx| evaluate_eq(rx, &r_y))
+        .collect::<Vec<F>>();
 
-    // let expected_result = evaluations
-    //     .into_iter()
-    //     .zip(combined_eq_evaluations.into_iter())
-    //     .fold(F::ZERO, |acc, (eval, eq)| acc + (eval * eq));
+    let mut final_claim =
+        batch_sc_rc[0] * E_eval * r_x_evals[0] + batch_sc_rc[1] * W_eval * r_x_evals[1];
 
-    // assert_eq!(
-    //     actual_result, expected_result,
-    //     "batch sum check final layer check failed"
-    // );
-    // (evals, r_y)
+    let mut temp = F::ZERO;
+    batch_sc_rc
+        .iter()
+        .skip(2)
+        .take(3)
+        .enumerate()
+        .for_each(|(idx, coeff)| {
+            temp += *coeff * e_rx_evals[idx];
+        });
+    batch_sc_rc
+        .iter()
+        .skip(5)
+        .take(3)
+        .enumerate()
+        .for_each(|(idx, coeff)| {
+            temp += *coeff * e_ry_evals[idx];
+        });
+    batch_sc_rc
+        .iter()
+        .skip(8)
+        .take(3)
+        .enumerate()
+        .for_each(|(idx, coeff)| {
+            temp += *coeff * val_evals[idx];
+        });
+    final_claim += temp * r_x_evals[2];
+
+    let mut temp = F::ZERO;
+    batch_sc_rc
+        .iter()
+        .skip(11)
+        .take(3)
+        .enumerate()
+        .for_each(|(idx, coeff)| {
+            temp += *coeff * e_rx_evals[idx];
+        });
+    batch_sc_rc
+        .iter()
+        .skip(14)
+        .take(3)
+        .enumerate()
+        .for_each(|(idx, coeff)| {
+            temp += *coeff * e_ry_evals[idx];
+        });
+    batch_sc_rc
+        .iter()
+        .skip(17)
+        .take(3)
+        .enumerate()
+        .for_each(|(idx, coeff)| {
+            temp += *coeff * rows_evals[idx];
+        });
+    batch_sc_rc
+        .iter()
+        .skip(20)
+        .take(3)
+        .enumerate()
+        .for_each(|(idx, coeff)| {
+            temp += *coeff * cols_evals[idx];
+        });
+    batch_sc_rc
+        .iter()
+        .skip(23)
+        .take(3)
+        .enumerate()
+        .for_each(|(idx, coeff)| {
+            temp += *coeff * read_ts_for_rows_evals[idx];
+        });
+    batch_sc_rc
+        .iter()
+        .skip(26)
+        .take(3)
+        .enumerate()
+        .for_each(|(idx, coeff)| {
+            temp += *coeff * read_ts_for_cols_evals[idx];
+        });
+    final_claim += temp * r_x_evals[3];
+
+    let mut temp = F::ZERO;
+    batch_sc_rc
+        .iter()
+        .skip(29)
+        .take(3)
+        .enumerate()
+        .for_each(|(idx, coeff)| {
+            temp += *coeff * final_ts_for_rows_evals[idx];
+        });
+    batch_sc_rc
+        .iter()
+        .skip(32)
+        .take(3)
+        .enumerate()
+        .for_each(|(idx, coeff)| {
+            temp += *coeff * final_ts_for_cols_evals[idx];
+        });
+    final_claim += temp * r_x_evals[4];
+
+    assert_eq!(
+        actual_result, final_claim,
+        "Final assertion failed in batch sum check"
+    );
+}
+
+fn extend_if_required<F: PrimeField + Serialize + DeserializeOwned>(rx: &mut Vec<Vec<F>>) {
+    let max_size = rx[2].len();
+    let diff = max_size - rx[0].len();
+    if diff != 0 {
+        let temp1 = rx[0].clone();
+        let temp2 = rx[1].clone();
+        let temp3 = rx[4].clone();
+        rx[0].reverse();
+        rx[1].reverse();
+        rx[4].reverse();
+
+        rx[0].extend(temp1[0..diff].to_vec());
+        rx[1].extend(temp2[0..diff].to_vec());
+        rx[4].extend(temp3[0..diff].to_vec());
+
+        rx[0].reverse();
+        rx[1].reverse();
+        rx[4].reverse();
+    }
 }

@@ -1470,6 +1470,7 @@ pub(crate) fn batch_sum_check_prover<
     >,
 ) -> (F, Vec<F>) {
     let sum_check_rounds = polys[0].len().trailing_zeros() as usize;
+
     // random points over the sum check rounds
     let mut random_points = vec![F::ZERO; sum_check_rounds];
 
@@ -1528,6 +1529,7 @@ pub(crate) fn batch_sum_check_prover<
                 *poly = par_fold_by_msb(poly, r_i);
             });
     }
+
     (eqs[0][0], random_points)
 }
 

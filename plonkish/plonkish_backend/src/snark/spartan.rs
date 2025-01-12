@@ -36,7 +36,6 @@ pub fn prove_sat<F, H, S>(
     H: Hash,
     S: BrakingbaseSpec,
 {
-
     let fsrp = first_layer_sum_check::<F, H, S>(
         &A,
         &B,
@@ -188,11 +187,11 @@ pub fn verify_sat<F, H, S>(
     let final_ts_for_cols_evals = transcript.read_field_elements(3).unwrap();
 
     let mut batch_r = Vec::new();
-    batch_r.push(&r_x);
-    batch_r.push(&r_y);
-    batch_r.push(&be_sc_rp);
-    batch_r.push(&random_points1);
-    batch_r.push(&random_points2);
+    batch_r.push(r_x);
+    batch_r.push(r_y);
+    batch_r.push(be_sc_rp);
+    batch_r.push(random_points2);
+    batch_r.push(random_points1);
 
     let batch_sc_rc = transcript.squeeze_challenges(35);
     let mut initial_claim = batch_sc_rc[0] * initial_sc_evals[3] + batch_sc_rc[1] * w_eval;
@@ -286,7 +285,7 @@ pub fn verify_sat<F, H, S>(
         });
     //TODO: Add output layer check
     //TODO: Add input layer check
-    batch_sum_check_verifier::<F, H, S>(&batch_r, initial_claim, transcript, &batch_sc_rc);
+    batch_sum_check_verifier::<F, H, S>(batch_r, initial_claim, transcript, &batch_sc_rc);
 }
 
 // pub fn evaluate_eq(basis_point: Vec<F>, evaluation_point: Vec<F>) -> F {

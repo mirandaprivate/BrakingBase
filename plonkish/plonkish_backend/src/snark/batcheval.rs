@@ -15,7 +15,9 @@ use crate::{
     util::transcript::TranscriptWrite,
 };
 use ff::PrimeField;
-use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
+use rayon::iter::{
+    IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator, ParallelIterator,
+};
 use serde::{de::DeserializeOwned, Serialize};
 
 pub fn batch_eval_proof<F, H, S>(
@@ -195,36 +197,36 @@ pub fn batch_eval_proof<F, H, S>(
         || {
             (
                 rows.iter()
-                    .map(|poly| evaluate_poly(poly, &random_points1))
+                    .map(|poly| evaluate_poly(poly, &random_points2))
                     .collect::<Vec<F>>(),
                 cols.iter()
-                    .map(|poly| evaluate_poly(poly, &random_points1))
+                    .map(|poly| evaluate_poly(poly, &random_points2))
                     .collect::<Vec<F>>(),
                 read_ts_for_rows
                     .iter()
-                    .map(|poly| evaluate_poly(poly, &random_points1))
+                    .map(|poly| evaluate_poly(poly, &random_points2))
                     .collect::<Vec<F>>(),
                 read_ts_for_cols
                     .iter()
-                    .map(|poly| evaluate_poly(poly, &random_points1))
+                    .map(|poly| evaluate_poly(poly, &random_points2))
                     .collect::<Vec<F>>(),
             )
         },
         || {
             (
                 e_rx.iter()
-                    .map(|poly| evaluate_poly(poly, &random_points1))
+                    .map(|poly| evaluate_poly(poly, &random_points2))
                     .collect::<Vec<F>>(),
                 e_ry.iter()
-                    .map(|poly| evaluate_poly(poly, &random_points1))
+                    .map(|poly| evaluate_poly(poly, &random_points2))
                     .collect::<Vec<F>>(),
                 final_ts_for_rows
                     .iter()
-                    .map(|poly| evaluate_poly(poly, &random_points2))
+                    .map(|poly| evaluate_poly(poly, &random_points1))
                     .collect::<Vec<F>>(),
                 final_ts_for_cols
                     .iter()
-                    .map(|poly| evaluate_poly(poly, &random_points2))
+                    .map(|poly| evaluate_poly(poly, &random_points1))
                     .collect::<Vec<F>>(),
             )
         },
@@ -326,7 +328,7 @@ pub fn batch_eval_proof<F, H, S>(
                 .fold(F::ZERO, |acc, (value1, value2)| acc + (*value1 * *value2))
         })
         .collect::<Vec<F>>();
-
+    let num_var_witness = poly1.len().trailing_zeros() as usize;
     extend_if_required(
         poly3.len(),
         &mut poly1,
@@ -358,13 +360,106 @@ pub fn batch_eval_proof<F, H, S>(
     polys.push(poly3);
     polys.push(poly4);
     polys.push(poly5);
+
     let mut eqs = Vec::new();
     eqs.push(rx_basis_evals);
     eqs.push(ry_basis_evals);
     eqs.push(eq_be_sc_rp);
-    eqs.push(eq_random_points1);
     eqs.push(eq_random_points2);
+    eqs.push(eq_random_points1);
+
     let (_, batch_sum_check_rp) = batch_sum_check_prover::<F, H, S>(&mut polys, eqs, transcript);
+
+    let (
+        (
+            rows_evals,
+            cols_evals,
+            read_ts_for_rows_evals,
+            read_ts_for_cols_evals,
+            e_rx_evals,
+            e_ry_evals,
+        ),
+        (final_ts_for_rows_evals, final_ts_for_cols_evals, val_evals, E_eval, W_eval),
+    ) = rayon::join(
+        || {
+            (
+                rows.iter()
+                    .map(|poly| evaluate_poly(&poly, &batch_sum_check_rp))
+                    .collect::<Vec<F>>(),
+                cols.iter()
+                    .map(|poly| evaluate_poly(&poly, &batch_sum_check_rp))
+                    .collect::<Vec<F>>(),
+                read_ts_for_rows
+                    .iter()
+                    .map(|poly| evaluate_poly(&poly, &batch_sum_check_rp))
+                    .collect::<Vec<F>>(),
+                read_ts_for_cols
+                    .iter()
+                    .map(|poly| evaluate_poly(&poly, &batch_sum_check_rp))
+                    .collect::<Vec<F>>(),
+                e_rx.iter()
+                    .map(|poly| evaluate_poly(&poly, &batch_sum_check_rp))
+                    .collect::<Vec<F>>(),
+                e_ry.iter()
+                    .map(|poly| evaluate_poly(&poly, &batch_sum_check_rp))
+                    .collect::<Vec<F>>(),
+            )
+        },
+        || {
+            (
+                final_ts_for_rows
+                    .iter()
+                    .map(|poly| {
+                        evaluate_poly(
+                            &poly,
+                            &batch_sum_check_rp[batch_sum_check_rp.len() - num_var_witness..]
+                                .to_vec(),
+                        )
+                    })
+                    .collect::<Vec<F>>(),
+                final_ts_for_cols
+                    .iter()
+                    .map(|poly| {
+                        evaluate_poly(
+                            &poly,
+                            &batch_sum_check_rp[batch_sum_check_rp.len() - num_var_witness..]
+                                .to_vec(),
+                        )
+                    })
+                    .collect::<Vec<F>>(),
+                val.iter()
+                    .map(|poly| evaluate_poly(&poly, &batch_sum_check_rp))
+                    .collect::<Vec<F>>(),
+                evaluate_poly(
+                    &E.evals().to_vec(),
+                    &batch_sum_check_rp[batch_sum_check_rp.len() - num_var_witness..].to_vec(),
+                ),
+                evaluate_poly(
+                    &W.evals().to_vec(),
+                    &batch_sum_check_rp[batch_sum_check_rp.len() - num_var_witness..].to_vec(),
+                ),
+            )
+        },
+    );
+    transcript.write_field_elements(&rows_evals).unwrap();
+    transcript.write_field_elements(&cols_evals).unwrap();
+    transcript
+        .write_field_elements(&read_ts_for_rows_evals)
+        .unwrap();
+    transcript
+        .write_field_elements(&read_ts_for_cols_evals)
+        .unwrap();
+    transcript.write_field_elements(&e_rx_evals).unwrap();
+    transcript.write_field_elements(&e_ry_evals).unwrap();
+    transcript
+        .write_field_elements(&final_ts_for_rows_evals)
+        .unwrap();
+    transcript
+        .write_field_elements(&final_ts_for_cols_evals)
+        .unwrap();
+    transcript.write_field_elements(&val_evals).unwrap();
+    transcript.write_field_element(&E_eval).unwrap();
+    transcript.write_field_element(&W_eval).unwrap();
 }
 
 fn extend_if_required<F: PrimeField + Serialize + DeserializeOwned>(
@@ -377,9 +472,8 @@ fn extend_if_required<F: PrimeField + Serialize + DeserializeOwned>(
     ry: &mut Vec<F>,
 ) {
     let mut poly_len = poly1.len();
-    let mut random_pt_len = random_points1.len();
-    println!("random pt len: {}", random_pt_len);
-    println!("random pt len: {}", max_len.trailing_zeros());
+    let count = (max_len.trailing_zeros() - poly_len.trailing_zeros()) as usize;
+
     if poly_len != max_len {
         let temp1 = poly1.clone();
         let temp2 = poly2.clone();
@@ -387,34 +481,23 @@ fn extend_if_required<F: PrimeField + Serialize + DeserializeOwned>(
         let temp4 = random_points1.clone();
         let temp5 = rx.clone();
         let temp6 = ry.clone();
+
         while poly_len != max_len {
             poly1.extend(temp1.clone());
             poly2.extend(temp2.clone());
             poly5.extend(temp3.clone());
             poly_len = poly1.len();
         }
-        while random_pt_len != max_len.trailing_zeros() as usize {
-            random_points1.extend(temp4.clone());
-            rx.extend(temp5.clone());
-            ry.extend(temp6.clone());
-            random_pt_len = random_points1.len();
-        }
+        random_points1.reverse();
+        rx.reverse();
+        ry.reverse();
+
+        random_points1.extend(temp4[0..count].to_vec());
+        rx.extend(temp5[0..count].to_vec());
+        ry.extend(temp6[0..count].to_vec());
+
+        random_points1.reverse();
+        rx.reverse();
+        ry.reverse();
     }
 }
-
-// fn extend_if_required_copy<F: PrimeField + Serialize + DeserializeOwned>(
-//     max_len: usize,
-//     polys: Vec<&mut Vec<F>>,
-// ) {
-//     let mut actual_length = polys[0].len();
-//     if actual_length != max_len {
-//         let temp: Vec<Vec<F>> = polys.iter().cloned().map(|p| p.clone()).collect();
-//         while actual_length != max_len {
-//             polys
-//                 .into_iter()
-//                 .zip(temp.iter())
-//                 .for_each(|(p, t)| p.extend(t));
-//             actual_length = polys[0].len();
-//         }
-//     }
-// }
