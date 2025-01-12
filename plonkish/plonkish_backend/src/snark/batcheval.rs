@@ -171,10 +171,10 @@ pub fn batch_eval_proof<F, H, S>(
     );
 
     let mut random_points1 = gkr_prover::<F, H, S>(
-        &w_init_circuit_layers_row
+        &[w_init_circuit_layers_row]
             .iter()
             .chain(s_circuit_layers_row.iter())
-            .chain(w_init_circuit_layers_col.iter())
+            .chain([w_init_circuit_layers_col].iter())
             .chain(s_circuit_layers_col.iter())
             .collect(),
         transcript,

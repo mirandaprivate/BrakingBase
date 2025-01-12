@@ -620,9 +620,9 @@ where
 
         let random_points1 = gkr_prover::<F, H, S>(
             &[
-                &w_init_circuit_layers_row[0],
+                &w_init_circuit_layers_row,
                 &s_circuit_layers_row[0],
-                &w_init_circuit_layers_col[0],
+                &w_init_circuit_layers_col,
                 &s_circuit_layers_col[0],
             ]
             .to_vec(),

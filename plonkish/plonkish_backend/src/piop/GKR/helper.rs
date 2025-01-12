@@ -69,6 +69,7 @@ pub fn input_layer_check1<F: PrimeField + Serialize + DeserializeOwned>(
         "input layer check failed of first circuit"
     )
 }
+
 pub fn input_layer_check2<F: PrimeField + Serialize + DeserializeOwned>(
     gamma_tau: &Vec<F>,
     expected_eval: F,

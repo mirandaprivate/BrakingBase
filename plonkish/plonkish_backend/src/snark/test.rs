@@ -55,7 +55,7 @@ pub fn er1cs_test() {
     let num_const = 1 << 5;
     let num_pi_inputs: usize = 8;
     let num_var = num_const - 1;
-    let sparsity: usize = 1;
+    let sparsity: usize = 2;
 
     let mut rng = OsRng;
     assert_eq!(
@@ -189,7 +189,6 @@ pub fn construct_matrices<F: PrimeField + Serialize + DeserializeOwned>(
         assert_eq!(Az[idx] * Bz[idx], u * Cz[idx] + E[idx]);
     }
 
-    //TODO:- Check if Z is correct
     (
         A,
         B,
@@ -230,73 +229,3 @@ pub fn er1cs_commit<F: PrimeField + Serialize + DeserializeOwned, H: Hash, S: Br
     println!("er1cs commit time {:?}", start_time.elapsed());
     eR1CSmetadata::new(A_metadata.clone(), B_metadata.clone(), C_metadata.clone())
 }
-
-// pub fn main(
-//     A: SparseRep,
-//     B: SparseRep,
-//     C: SparseRep,
-//     Z: Vec<F>,
-//     E: Vec<F>,
-//     W: Vec<F>,
-//     u: F,
-//     PI: Vec<F>,
-//     srs: &SRS<BlsCurve>,
-//     ver_key: &VerificationKey<BlsCurve>,
-//     num_cols: usize,
-// ) {
-//     let (er1cs_metadata, er1cs_commitments) = er1cs_commit(
-//         A.clone(),
-//         B.clone(),
-//         C.clone(),
-//         E.clone(),
-//         W.clone(),
-//         srs,
-//         num_cols,
-//     );
-//     let mut channel = Channel::initialize_with_affine_point(
-//         [
-//             er1cs_commitments.E.commitment.to_affine(),
-//             er1cs_commitments.W.commitment.to_affine(),
-//         ]
-//         .as_ref(),
-//     );
-
-//     let time = Instant::now();
-//     let er1cs_transcript = prove_sat(
-//         A,
-//         B,
-//         C,
-//         &u,
-//         &MultPolynomial::new(Z),
-//         &MultPolynomial::new(E),
-//         &MultPolynomial::new(W),
-//         er1cs_metadata,
-//         srs,
-//         &mut channel,
-//     );
-//     println!("Time to generate er1cs proof is {:?}", time.elapsed());
-//     println!(
-//         "Proof size {:?}",
-//         er1cs_transcript.to_bytes().len() as f64 / 1024f64
-//     );
-//     let mut channel = Channel::initialize_with_affine_point(
-//         [
-//             er1cs_commitments.E.commitment.to_affine(),
-//             er1cs_commitments.W.commitment.to_affine(),
-//         ]
-//         .as_ref(),
-//     );
-
-//     let pi_indices: Vec<usize> = (0..1 << 5).collect();
-//     let time = Instant::now();
-//     verify_sat(
-//         er1cs_transcript,
-//         er1cs_commitments,
-//         u,
-//         MultPolynomial::new(PI),
-//         pi_indices,
-//         ver_key,
-//         &mut channel,
-//     );
-//     println!("Time to verify er1cs proof is {:?}", time.elapsed());
-// }

@@ -7,9 +7,10 @@ use super::sum_check::{
 use crate::pcs::multilinear::brakingbase::{
     Brakingbase, BrakingbaseProverParams, BrakingbaseSpec, BrakingbaseVerifierParams,
 };
-use crate::pcs::multilinear::brakingbase_helper::point_to_tensor;
+use crate::pcs::multilinear::brakingbase_helper::{evaluate_eq, point_to_tensor};
 use crate::pcs::PolynomialCommitmentScheme;
 use crate::piop::GKR::gkr::gkr_verifier;
+use crate::piop::GKR::helper::evaluate_indicies;
 use crate::poly::Polynomial;
 use crate::util::hash::Hash;
 use crate::util::transcript::TranscriptRead;
@@ -118,15 +119,6 @@ pub fn verify_sat<F, H, S>(
     let C_final_ts_row_commit = transcript.read_commitment().unwrap();
     let C_final_ts_col_commit = transcript.read_commitment().unwrap();
 
-    //TODO:- Read commitments;
-    // let rx = transcript.first_sum_check_transcript.random_points.clone();
-    // let ry = transcript.par_sum_check_transcript.random_points.clone();
-
-    // let Az_claimed_val = transcript.first_sum_check_transcript.Az_claimed_val;
-    // let Bz_claimed_val = transcript.first_sum_check_transcript.Bz_claimed_val;
-    // let Cz_claimed_val = transcript.first_sum_check_transcript.Cz_claimed_val;
-    // let E_final_eval = transcript.E_eval_proof.evaluation;
-
     let (initial_sc_evals, r_x) =
         initial_sum_check_verification::<F, H, S>(num_const, u, transcript);
 
@@ -135,8 +127,6 @@ pub fn verify_sat<F, H, S>(
     let par_sc_ic = random_coeffs[0] * initial_sc_evals[0]
         + random_coeffs[1] * initial_sc_evals[1]
         + random_coeffs[2] * initial_sc_evals[2];
-
-    // let eval_point = [rx, ry.clone()].concat();
 
     let (r_y, a_b_c_claimed, w_eval) = par_sum_check_verification::<F, H, S>(
         num_const,
@@ -168,14 +158,41 @@ pub fn verify_sat<F, H, S>(
         );
     let gamma_tau = transcript.squeeze_challenges(2);
 
-    let (expected_eval, combiners, random_points1, output_layer_eval1) =
-        gkr_verifier::<F>(num_const.trailing_zeros() as usize, transcript, 12);
+    let (expected_eval1, combiners1, random_points1, output_layer_eval1) =
+        gkr_verifier::<F>(num_const.trailing_zeros() as usize, transcript, 8);
 
-    let (expected_eval, combiners, random_points2, output_layer_eval1) = gkr_verifier::<F>(
+    let (expected_eval2, combiners2, random_points2, output_layer_eval2) = gkr_verifier::<F>(
         (num_const * sparsity).trailing_zeros() as usize,
         transcript,
         12,
     );
+    (0..3).for_each(|idx| {
+        assert_eq!(
+            output_layer_eval1[0]
+                * output_layer_eval1[1]
+                * output_layer_eval2[2 * idx]
+                * output_layer_eval2[2 * idx + 1],
+            output_layer_eval1[2 * idx + 2]
+                * output_layer_eval1[2 * idx + 3]
+                * output_layer_eval2[2 * idx + 6]
+                * output_layer_eval2[2 * idx + 7],
+            "output layer check failed for row at index {}",
+            idx
+        );
+
+        assert_eq!(
+            output_layer_eval1[8]
+                * output_layer_eval1[9]
+                * output_layer_eval2[2 * idx + 12]
+                * output_layer_eval2[2 * idx + 13],
+            output_layer_eval1[2 * idx + 10]
+                * output_layer_eval1[2 * idx + 11]
+                * output_layer_eval2[2 * idx + 18]
+                * output_layer_eval2[2 * idx + 19],
+            "output layer check failed for col at index {}",
+            idx
+        );
+    });
 
     let rows_evals = transcript.read_field_elements(3).unwrap();
     let cols_evals = transcript.read_field_elements(3).unwrap();
@@ -185,6 +202,34 @@ pub fn verify_sat<F, H, S>(
     let e_ry_evals = transcript.read_field_elements(3).unwrap();
     let final_ts_for_rows_evals = transcript.read_field_elements(3).unwrap();
     let final_ts_for_cols_evals = transcript.read_field_elements(3).unwrap();
+
+    input_layer_check1(
+        &gamma_tau,
+        &r_x,
+        &r_y,
+        &combiners1,
+        &random_points1,
+        expected_eval1,
+        8,
+        &final_ts_for_rows_evals,
+        &final_ts_for_cols_evals,
+    );
+    let input_layer_evaluations = rows_evals
+        .iter()
+        .chain(e_rx_evals.iter())
+        .chain(read_ts_for_rows_evals.iter())
+        .chain(cols_evals.iter())
+        .chain(e_ry_evals.iter())
+        .chain(read_ts_for_cols_evals.iter())
+        .collect::<Vec<&F>>();
+
+    input_layer_check2(
+        &gamma_tau,
+        expected_eval2,
+        &combiners2,
+        12,
+        &input_layer_evaluations,
+    );
 
     let mut batch_r = Vec::new();
     batch_r.push(r_x);
@@ -283,23 +328,76 @@ pub fn verify_sat<F, H, S>(
         .for_each(|(idx, coeff)| {
             initial_claim += *coeff * final_ts_for_cols_evals[idx];
         });
+
     //TODO: Add output layer check
     //TODO: Add input layer check
     batch_sum_check_verifier::<F, H, S>(batch_r, initial_claim, transcript, &batch_sc_rc);
 }
+pub fn input_layer_check1<F: PrimeField + Serialize + DeserializeOwned>(
+    gamma_tau: &Vec<F>,
+    r_x: &Vec<F>,
+    r_y: &Vec<F>,
+    combiners: &Vec<F>,
+    random_points: &Vec<F>,
+    expected_eval: F,
+    n_circuits: usize,
+    final_ts_for_rows_evals: &Vec<F>,
+    final_ts_for_cols_evals: &Vec<F>,
+) {
+    let mut random_points = random_points.clone();
+    let r_x_eval = evaluate_eq::<F>(r_x, &random_points);
+    let r_y_eval = evaluate_eq::<F>(r_y, &random_points);
+    random_points.reverse();
+    let indices_eval = evaluate_indicies::<F>(&random_points);
+    let gamma_square = gamma_tau[0].square();
+    let mut circuit_evals = vec![F::ZERO; n_circuits];
 
-// pub fn evaluate_eq(basis_point: Vec<F>, evaluation_point: Vec<F>) -> F {
-//     let mut res = F::ONE;
-//     for (x, y) in basis_point.iter().zip(evaluation_point.iter()) {
-//         res *= F::ONE - *x - *y + (*x * *y).double()
-//     }
-//     res
-// }
+    circuit_evals[0] = indices_eval + gamma_tau[0] * r_x_eval - gamma_tau[1];
+    circuit_evals[4] = indices_eval + gamma_tau[0] * r_y_eval - gamma_tau[1];
 
-// //...........
-// // CODE  for evaluating polynomial at points
-// //.............
-// pub fn eval(p: &[F], x: F) -> F {
-//     // Horner evaluation
-//     p.iter().rev().fold(F::ZERO, |acc, &coeff| acc * x + coeff)
-// }
+    (0..3).for_each(|idx| {
+        circuit_evals[1 + idx] = circuit_evals[0] + gamma_square * final_ts_for_rows_evals[idx];
+        circuit_evals[5 + idx] = circuit_evals[4] + gamma_square * final_ts_for_cols_evals[idx];
+    });
+
+    let mut final_claimed_values = F::ZERO;
+    for c in 0..n_circuits {
+        final_claimed_values += combiners[c] * circuit_evals[c]
+    }
+    assert_eq!(
+        expected_eval, final_claimed_values,
+        "input layer check failed of first circuit"
+    )
+}
+
+pub fn input_layer_check2<F: PrimeField + Serialize + DeserializeOwned>(
+    gamma_tau: &Vec<F>,
+    expected_eval: F,
+    combiners: &Vec<F>,
+    n_circuits: usize,
+    evaluations: &Vec<&F>,
+) {
+    let gamma_square = gamma_tau[0].square();
+    let mut circuit_evals = vec![F::ZERO; n_circuits];
+    (0..3).for_each(|idx| {
+        circuit_evals[idx + 3] = *evaluations[idx]
+            + gamma_tau[0] * *evaluations[3 + idx]
+            + gamma_square * *evaluations[6 + idx]
+            - gamma_tau[1];
+        circuit_evals[idx] = circuit_evals[idx + 3] + gamma_square;
+        circuit_evals[idx + 9] = *evaluations[9 + idx]
+            + gamma_tau[0] * *evaluations[12 + idx]
+            + gamma_square * *evaluations[15 + idx]
+            - gamma_tau[1];
+        circuit_evals[idx + 6] = circuit_evals[idx + 9] + gamma_square;
+    });
+
+    let mut final_claimed_values = F::ZERO;
+    for c in 0..n_circuits {
+        final_claimed_values += combiners[c] * circuit_evals[c]
+    }
+    assert_eq!(
+        expected_eval, final_claimed_values,
+        "Input layer check failed of second circuit"
+    )
+}
