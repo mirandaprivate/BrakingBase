@@ -5,7 +5,8 @@ use super::sum_check::{
     matrix_eval_sum_check_verifier, par_sum_check_verification, parallel_sum_checks,
 };
 use crate::pcs::multilinear::brakingbase::{
-    Brakingbase, BrakingbaseProverParams, BrakingbaseSpec, BrakingbaseVerifierParams,
+    Brakingbase, BrakingbaseCommitment, BrakingbaseProverParams, BrakingbaseSpec,
+    BrakingbaseVerifierParams,
 };
 use crate::pcs::multilinear::brakingbase_helper::{evaluate_eq, point_to_tensor};
 use crate::pcs::PolynomialCommitmentScheme;
@@ -28,6 +29,8 @@ pub fn prove_sat<F, H, S>(
     W: &MultilinearPolynomial<F>,
     metadatas: eR1CSmetadata<F>,
     pp: &BrakingbaseProverParams<F, H>,
+    commit1: &Vec<BrakingbaseCommitment<F, H>>,
+    commit2: &Vec<BrakingbaseCommitment<F, H>>,
     transcript: &mut impl TranscriptWrite<
         <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::CommitmentChunk,
         F,
@@ -71,6 +74,8 @@ pub fn prove_sat<F, H, S>(
         E,
         W,
         pp,
+        commit1,
+        commit2,
         transcript,
     );
 }
@@ -214,6 +219,7 @@ pub fn verify_sat<F, H, S>(
         &final_ts_for_rows_evals,
         &final_ts_for_cols_evals,
     );
+
     let input_layer_evaluations = rows_evals
         .iter()
         .chain(e_rx_evals.iter())
@@ -329,8 +335,6 @@ pub fn verify_sat<F, H, S>(
             initial_claim += *coeff * final_ts_for_cols_evals[idx];
         });
 
-    //TODO: Add output layer check
-    //TODO: Add input layer check
     batch_sum_check_verifier::<F, H, S>(batch_r, initial_claim, transcript, &batch_sc_rc);
 }
 pub fn input_layer_check1<F: PrimeField + Serialize + DeserializeOwned>(

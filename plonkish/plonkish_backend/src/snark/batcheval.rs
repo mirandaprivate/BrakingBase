@@ -1,7 +1,12 @@
+use std::iter;
+
 use super::helper::SparseMetaData;
 use super::sum_check::matrix_eval_sum_check;
-use crate::pcs::multilinear::brakingbase::{batch_sum_check_prover, BrakingbaseSpec};
+use crate::pcs::multilinear::brakingbase::{
+    batch_sum_check_prover, BrakingbaseCommitment, BrakingbaseSpec,
+};
 use crate::pcs::multilinear::brakingbase_helper::{evaluate_poly, point_to_tensor};
+use crate::pcs::Evaluation;
 use crate::piop::GKR::gkr::gkr_prover;
 use crate::piop::GKR::gpc::grand_product_circuits;
 use crate::poly::multilinear::MultilinearPolynomial;
@@ -15,9 +20,8 @@ use crate::{
     util::transcript::TranscriptWrite,
 };
 use ff::PrimeField;
-use rayon::iter::{
-    IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator, ParallelIterator,
-};
+use itertools::{chain, Itertools};
+use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use serde::{de::DeserializeOwned, Serialize};
 
 pub fn batch_eval_proof<F, H, S>(
@@ -28,6 +32,8 @@ pub fn batch_eval_proof<F, H, S>(
     E: &MultilinearPolynomial<F>,
     W: &MultilinearPolynomial<F>,
     pp: &BrakingbaseProverParams<F, H>,
+    commit1: &Vec<BrakingbaseCommitment<F, H>>,
+    commit2: &Vec<BrakingbaseCommitment<F, H>>,
     transcript: &mut impl TranscriptWrite<
         <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::CommitmentChunk,
         F,
@@ -460,6 +466,66 @@ pub fn batch_eval_proof<F, H, S>(
     transcript.write_field_elements(&val_evals).unwrap();
     transcript.write_field_element(&E_eval).unwrap();
     transcript.write_field_element(&W_eval).unwrap();
+    let evals1: Vec<F> = rows_evals
+        .iter()
+        .chain(cols_evals.iter())
+        .chain(read_ts_for_rows_evals.iter())
+        .chain(read_ts_for_cols_evals.iter())
+        .chain(e_rx_evals.iter())
+        .chain(e_ry_evals.iter())
+        .chain(val_evals.iter())
+        .chain([E_eval].iter())
+        .chain([W_eval].iter())
+        .cloned()
+        .collect();
+
+    let evals = chain![
+        (0..evals1.len()).map(|point| (0, point)),
+        (0..evals1.len()).map(|poly| (poly, 0)),
+    ]
+    .unique()
+    .collect_vec();
+    let evals1 = evals
+        .iter()
+        .copied()
+        .map(|(poly, point)| Evaluation::new(poly, point, evals1[poly]))
+        .collect_vec();
+    let evals2: Vec<F> = final_ts_for_rows_evals
+        .iter()
+        .chain(final_ts_for_cols_evals.iter())
+        .chain([E_eval].iter())
+        .cloned()
+        .collect();
+    let evals = chain![
+        (0..evals2.len()).map(|point| (0, point)),
+        (0..evals2.len()).map(|poly| (poly, 0)),
+    ]
+    .unique()
+    .collect_vec();
+    let evals2 = evals
+        .iter()
+        .copied()
+        .map(|(poly, point)| Evaluation::new(poly, point, evals2[poly]))
+        .collect_vec();
+
+    <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::batch_open(
+        pp,
+        None,
+        commit1,
+        &[batch_sum_check_rp.clone()].to_vec(),
+        &evals1,
+        transcript,
+    )
+    .unwrap();
+    <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::batch_open(
+        pp,
+        None,
+        commit2,
+        &[batch_sum_check_rp[batch_sum_check_rp.len() - num_var_witness..].to_vec()].to_vec(),
+        &evals2,
+        transcript,
+    )
+    .unwrap();
 }
 
 fn extend_if_required<F: PrimeField + Serialize + DeserializeOwned>(

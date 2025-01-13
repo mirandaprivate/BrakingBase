@@ -4,8 +4,8 @@ use rayon::iter::ParallelIterator;
 pub fn grand_product_circuits<F: PrimeField>(
     len1: usize,
     len2: usize,
-    memory_index: &Vec<Vec<F>>,           //rows
-    h_erow_ecol: &Vec<Vec<F>>, //e_rx
+    memory_index: &Vec<Vec<F>>, //rows
+    h_erow_ecol: &Vec<Vec<F>>,  //e_rx
     read_ts: &Vec<Vec<F>>,
     final_ts: &Vec<Vec<F>>,
     eq_data: &Vec<F>, //rx_basis

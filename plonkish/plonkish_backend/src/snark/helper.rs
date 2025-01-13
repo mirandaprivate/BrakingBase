@@ -1,8 +1,7 @@
-use crate::pcs::multilinear::brakingbase::{Brakingbase,BrakingbaseProverParams, BrakingbaseSpec};
+use crate::pcs::multilinear::brakingbase::{Brakingbase, BrakingbaseProverParams, BrakingbaseSpec};
 use crate::util::hash::Hash;
 use crate::{
-    pcs::PolynomialCommitmentScheme,
-    poly::multilinear::MultilinearPolynomial,
+    pcs::PolynomialCommitmentScheme, poly::multilinear::MultilinearPolynomial,
     util::transcript::TranscriptWrite,
 };
 use ff::PrimeField;
@@ -30,7 +29,7 @@ pub struct eR1CSmetadata<F: PrimeField + Serialize + DeserializeOwned> {
 }
 
 #[allow(non_snake_case)]
-impl <F: PrimeField + Serialize + DeserializeOwned>eR1CSmetadata<F> {
+impl<F: PrimeField + Serialize + DeserializeOwned> eR1CSmetadata<F> {
     pub fn new(A: SparseMetaData<F>, B: SparseMetaData<F>, C: SparseMetaData<F>) -> Self {
         Self { A, B, C }
     }
@@ -164,44 +163,71 @@ impl<F: PrimeField + Serialize + DeserializeOwned> SparseMetaData<F> {
             <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::CommitmentChunk,
             F,
         >,
+    ) -> (
+        crate::pcs::multilinear::brakingbase::BrakingbaseCommitment<F, H>,
+        crate::pcs::multilinear::brakingbase::BrakingbaseCommitment<F, H>,
+        crate::pcs::multilinear::brakingbase::BrakingbaseCommitment<F, H>,
+        crate::pcs::multilinear::brakingbase::BrakingbaseCommitment<F, H>,
+        crate::pcs::multilinear::brakingbase::BrakingbaseCommitment<F, H>,
+        crate::pcs::multilinear::brakingbase::BrakingbaseCommitment<F, H>,
+        crate::pcs::multilinear::brakingbase::BrakingbaseCommitment<F, H>,
     ) {
-        <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::commit_and_write(
-            pp, &self.row, transcript,
-        )
-        .unwrap();
-        <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::commit_and_write(
-            pp, &self.col, transcript,
-        )
-        .unwrap();
-        <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::commit_and_write(
-            pp, &self.val, transcript,
-        )
-        .unwrap();
-        <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::commit_and_write(
+        let row_commit =
+            <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::commit(pp, &self.row).unwrap();
+        transcript.write_commitment(row_commit.as_ref()).unwrap();
+
+        let col_commit =
+            <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::commit(pp, &self.col).unwrap();
+        transcript.write_commitment(col_commit.as_ref()).unwrap();
+
+        let val_commit =
+            <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::commit(pp, &self.val).unwrap();
+        transcript.write_commitment(val_commit.as_ref()).unwrap();
+
+        let read_ts_row_commit = <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::commit(
             pp,
             &self.timestamps.read_ts_row,
-            transcript,
         )
         .unwrap();
-        <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::commit_and_write(
+        transcript
+            .write_commitment(read_ts_row_commit.as_ref())
+            .unwrap();
+
+        let read_ts_col_commit = <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::commit(
             pp,
             &self.timestamps.read_ts_col,
-            transcript,
         )
         .unwrap();
+        transcript
+            .write_commitment(read_ts_col_commit.as_ref())
+            .unwrap();
 
-        <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::commit_and_write(
+        let final_ts_row_commit = <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::commit(
             pp,
             &self.timestamps.final_ts_row,
-            transcript,
         )
         .unwrap();
-        <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::commit_and_write(
+        transcript
+            .write_commitment(final_ts_row_commit.as_ref())
+            .unwrap();
+
+        let final_ts_col_commit = <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::commit(
             pp,
             &self.timestamps.final_ts_col,
-            transcript,
         )
         .unwrap();
+        transcript
+            .write_commitment(final_ts_col_commit.as_ref())
+            .unwrap();
+        (
+            row_commit,
+            col_commit,
+            val_commit,
+            read_ts_row_commit,
+            read_ts_col_commit,
+            final_ts_row_commit,
+            final_ts_col_commit,
+        )
     }
 }
 
@@ -239,10 +265,7 @@ impl<F: PrimeField + Serialize + DeserializeOwned> SparseRep<F> {
             //For each row, iterate over entries and multiply with corresponding lagrange basis element and flatten returned results
             //into a vector of Fs.
             row_entries.iter().map(|coldata|
-            
-            basis_evals[(row_idx<<dim) + coldata.column] * coldata.value
-        
-         ).collect::<Vec<F>>(), //Sum over all returned values to get final evaluation value as an inner product.
+            basis_evals[(row_idx<<dim) + coldata.column] * coldata.value).collect::<Vec<F>>(), //Sum over all returned values to get final evaluation value as an inner product.
             )
             .reduce(|| F::ZERO, |acc, e| acc + e)
     }
