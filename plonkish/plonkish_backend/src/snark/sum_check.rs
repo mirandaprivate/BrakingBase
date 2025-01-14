@@ -451,7 +451,21 @@ pub fn batch_sum_check_verifier<F, H, S>(
         F,
     >,
     batch_sc_rc: &Vec<F>,
-) where
+) -> (
+    Vec<F>,
+    Vec<F>,
+    Vec<F>,
+    Vec<F>,
+    Vec<F>,
+    Vec<F>,
+    Vec<F>,
+    Vec<F>,
+    Vec<F>,
+    F,
+    F,
+    Vec<F>,
+)
+where
     F: PrimeField + Serialize + DeserializeOwned,
     H: Hash,
     S: BrakingbaseSpec,
@@ -474,12 +488,12 @@ pub fn batch_sum_check_verifier<F, H, S>(
     }
     let rows_evals = transcript.read_field_elements(3).unwrap();
     let cols_evals = transcript.read_field_elements(3).unwrap();
-    let read_ts_for_rows_evals = transcript.read_field_elements(3).unwrap();
-    let read_ts_for_cols_evals = transcript.read_field_elements(3).unwrap();
+    let read_ts_rows_evals = transcript.read_field_elements(3).unwrap();
+    let read_ts_cols_evals = transcript.read_field_elements(3).unwrap();
     let e_rx_evals = transcript.read_field_elements(3).unwrap();
     let e_ry_evals = transcript.read_field_elements(3).unwrap();
-    let final_ts_for_rows_evals = transcript.read_field_elements(3).unwrap();
-    let final_ts_for_cols_evals = transcript.read_field_elements(3).unwrap();
+    let final_ts_rows_evals = transcript.read_field_elements(3).unwrap();
+    let final_ts_cols_evals = transcript.read_field_elements(3).unwrap();
     let val_evals = transcript.read_field_elements(3).unwrap();
     let E_eval = transcript.read_field_element().unwrap();
     let W_eval = transcript.read_field_element().unwrap();
@@ -560,7 +574,7 @@ pub fn batch_sum_check_verifier<F, H, S>(
         .take(3)
         .enumerate()
         .for_each(|(idx, coeff)| {
-            temp += *coeff * read_ts_for_rows_evals[idx];
+            temp += *coeff * read_ts_rows_evals[idx];
         });
     batch_sc_rc
         .iter()
@@ -568,7 +582,7 @@ pub fn batch_sum_check_verifier<F, H, S>(
         .take(3)
         .enumerate()
         .for_each(|(idx, coeff)| {
-            temp += *coeff * read_ts_for_cols_evals[idx];
+            temp += *coeff * read_ts_cols_evals[idx];
         });
     final_claim += temp * r_x_evals[3];
 
@@ -579,7 +593,7 @@ pub fn batch_sum_check_verifier<F, H, S>(
         .take(3)
         .enumerate()
         .for_each(|(idx, coeff)| {
-            temp += *coeff * final_ts_for_rows_evals[idx];
+            temp += *coeff * final_ts_rows_evals[idx];
         });
     batch_sc_rc
         .iter()
@@ -587,7 +601,7 @@ pub fn batch_sum_check_verifier<F, H, S>(
         .take(3)
         .enumerate()
         .for_each(|(idx, coeff)| {
-            temp += *coeff * final_ts_for_cols_evals[idx];
+            temp += *coeff * final_ts_cols_evals[idx];
         });
     final_claim += temp * r_x_evals[4];
 
@@ -595,6 +609,20 @@ pub fn batch_sum_check_verifier<F, H, S>(
         actual_result, final_claim,
         "Final assertion failed in batch sum check"
     );
+    (
+        rows_evals,
+        cols_evals,
+        read_ts_rows_evals,
+        read_ts_cols_evals,
+        e_rx_evals,
+        e_ry_evals,
+        final_ts_rows_evals,
+        final_ts_cols_evals,
+        val_evals,
+        E_eval,
+        W_eval,
+        r_y,
+    )
 }
 
 fn extend_if_required<F: PrimeField + Serialize + DeserializeOwned>(rx: &mut Vec<Vec<F>>) {

@@ -9,7 +9,7 @@ use crate::pcs::multilinear::brakingbase::{
     BrakingbaseVerifierParams,
 };
 use crate::pcs::multilinear::brakingbase_helper::{evaluate_eq, point_to_tensor};
-use crate::pcs::PolynomialCommitmentScheme;
+use crate::pcs::{Evaluation, PolynomialCommitmentScheme};
 use crate::piop::GKR::gkr::gkr_verifier;
 use crate::piop::GKR::helper::evaluate_indicies;
 use crate::poly::Polynomial;
@@ -17,6 +17,7 @@ use crate::util::hash::Hash;
 use crate::util::transcript::TranscriptRead;
 use crate::{poly::multilinear::MultilinearPolynomial, util::transcript::TranscriptWrite};
 use ff::PrimeField;
+use itertools::{chain, Itertools};
 use serde::{de::DeserializeOwned, Serialize};
 #[allow(non_snake_case)]
 pub fn prove_sat<F, H, S>(
@@ -144,6 +145,42 @@ pub fn verify_sat<F, H, S>(
 
     let e_rx_commits = transcript.read_commitments(3).unwrap();
     let e_ry_commits = transcript.read_commitments(3).unwrap();
+    let commit1: Vec<BrakingbaseCommitment<F, H>> = vec![
+        A_row_commit,
+        B_row_commit,
+        C_row_commit,
+        A_col_commit,
+        B_col_commit,
+        C_col_commit,
+        A_val_commit,
+        B_val_commit,
+        C_val_commit,
+        A_read_ts_row_commit,
+        B_read_ts_row_commit,
+        C_read_ts_row_commit,
+        A_read_ts_col_commit,
+        B_read_ts_col_commit,
+        C_read_ts_col_commit,
+    ]
+    .into_iter()
+    .chain(e_rx_commits.into_iter())
+    .chain(e_ry_commits.into_iter())
+    .map(|commit| BrakingbaseCommitment::from_root(commit))
+    .collect();
+
+    let commit2: Vec<BrakingbaseCommitment<F, H>> = vec![
+        A_final_ts_row_commit,
+        B_final_ts_row_commit,
+        C_final_ts_row_commit,
+        A_final_ts_col_commit,
+        B_final_ts_col_commit,
+        C_final_ts_col_commit,
+        E_commit,
+        W_commit,
+    ]
+    .into_iter()
+    .map(|commit| BrakingbaseCommitment::from_root(commit))
+    .collect();
 
     let random_coeffs = transcript.squeeze_challenges(3);
     let evaluation = random_coeffs
@@ -236,6 +273,8 @@ pub fn verify_sat<F, H, S>(
         12,
         &input_layer_evaluations,
     );
+
+    let num_var_witness = r_x.len();
 
     let mut batch_r = Vec::new();
     batch_r.push(r_x);
@@ -335,7 +374,78 @@ pub fn verify_sat<F, H, S>(
             initial_claim += *coeff * final_ts_for_cols_evals[idx];
         });
 
-    batch_sum_check_verifier::<F, H, S>(batch_r, initial_claim, transcript, &batch_sc_rc);
+    let (
+        rows_evals,
+        cols_evals,
+        read_ts_rows_evals,
+        read_ts_cols_evals,
+        e_rx_evals,
+        e_ry_evals,
+        final_ts_rows_evals,
+        final_ts_cols_evals,
+        val_evals,
+        E_eval,
+        W_eval,
+        bt_sc_rp,
+    ) = batch_sum_check_verifier::<F, H, S>(batch_r, initial_claim, transcript, &batch_sc_rc);
+
+    let evals1: Vec<F> = rows_evals
+        .iter()
+        .chain(cols_evals.iter())
+        .chain(val_evals.iter())
+        .chain(read_ts_rows_evals.iter())
+        .chain(read_ts_cols_evals.iter())
+        .chain(e_rx_evals.iter())
+        .chain(e_ry_evals.iter())
+        .cloned()
+        .collect();
+
+    let evals = chain![
+        (0..evals1.len()).map(|point| (0, point)),
+        (0..evals1.len()).map(|poly| (poly, 0)),
+    ]
+    .unique()
+    .collect_vec();
+    let evals1 = evals
+        .iter()
+        .copied()
+        .map(|(poly, point)| Evaluation::new(poly, point, evals1[poly]))
+        .collect_vec();
+    let evals2: Vec<F> = final_ts_rows_evals
+        .iter()
+        .chain(final_ts_cols_evals.iter())
+        .chain([E_eval].iter())
+        .chain([W_eval].iter())
+        .cloned()
+        .collect();
+    let evals = chain![
+        (0..evals2.len()).map(|point| (0, point)),
+        (0..evals2.len()).map(|poly| (poly, 0)),
+    ]
+    .unique()
+    .collect_vec();
+    let evals2 = evals
+        .iter()
+        .copied()
+        .map(|(poly, point)| Evaluation::new(poly, point, evals2[poly]))
+        .collect_vec();
+
+    <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::batch_verify(
+        vp,
+        &commit1,
+        &[bt_sc_rp.clone()].to_vec(),
+        &evals1,
+        transcript,
+    )
+    .unwrap();
+    <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::batch_verify(
+        vp,
+        &commit2,
+        &[bt_sc_rp[bt_sc_rp.len() - num_var_witness..].to_vec()].to_vec(),
+        &evals2,
+        transcript,
+    )
+    .unwrap();
 }
 pub fn input_layer_check1<F: PrimeField + Serialize + DeserializeOwned>(
     gamma_tau: &Vec<F>,

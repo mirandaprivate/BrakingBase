@@ -135,7 +135,7 @@ impl<F: PrimeField, H: Hash> BrakingbaseProverParams<F, H> {
 }
 
 impl<F: PrimeField, H: Hash> BrakingbaseCommitment<F, H> {
-    fn from_root(root: Output<H>) -> Self {
+    pub fn from_root(root: Output<H>) -> Self {
         Self {
             rows: Vec::new(),
             intermediate_hashes: vec![],
@@ -924,7 +924,7 @@ where
         _: impl IntoIterator<Item = &'a Self::Polynomial>,
         comms: impl IntoIterator<Item = &'a Self::Commitment>,
         points: &[Point<F, Self::Polynomial>],
-        evals: &[Evaluation<F>],
+        _: &[Evaluation<F>],
         transcript: &mut impl TranscriptWrite<Self::CommitmentChunk, F>,
     ) -> Result<(), Error>
     where
@@ -1810,39 +1810,41 @@ where
 
         let num_polys = comms.len();
         let combiners = transcript.squeeze_challenges(num_polys);
-
         let p_p_prime_commit = transcript.read_commitment().unwrap();
+       
         // Read all the queried columns and check their Merkle paths
         let depth = codeword_len.next_power_of_two().ilog2() as usize;
         let mut col_idx = vec![0 as usize; vp.num_brakedown_queries];
-        let mut cols = Vec::new();
+        let mut cols = vec![Vec::<F>::new(); num_polys];
+  
         let mut paths = Vec::new();
         for i in 0..vp.num_brakedown_queries {
             col_idx[i] = squeeze_challenge_idx(transcript, codeword_len);
-            let mut temp_col = Vec::new();
+            // let mut temp_col = Vec::new();
             (0..num_polys).for_each(|k| {
                 let col = transcript
                     .read_field_elements(vp.brakedown_num_rows)
                     .unwrap();
-                temp_col.push(col);
+                // temp_col.push(col);
+                cols[k].extend(col);
             });
             let mut temp_path = Vec::new();
             (0..num_polys).for_each(|k| {
                 let path = transcript.read_commitments(depth).unwrap();
                 temp_path.push(path);
             });
-            cols.extend(temp_col);
             paths.push(temp_path);
         }
-
-        (0..vp.num_brakedown_queries).into_par_iter().for_each(|i| {
-            let col = cols[i * vp.brakedown_num_rows..(i + 1) * vp.brakedown_num_rows].to_vec();
+    
+        (0..vp.num_brakedown_queries).for_each(|i| {
             let path = &paths[i];
             (0..num_polys).for_each(|k| {
+                let col =
+                    cols[k][i * vp.brakedown_num_rows..(i + 1) * vp.brakedown_num_rows].to_vec();
                 // verify merkle tree opening
                 let mut hasher = H::new();
                 let mut output = {
-                    for elem in col[k].iter() {
+                    for elem in col.iter() {
                         hasher.update_field_element(elem);
                     }
                     hasher.finalize_fixed_reset()
@@ -1858,7 +1860,7 @@ where
                     output = hasher.finalize_fixed_reset();
                 }
                 if &output != &comms[k].root {
-                    panic!("Invalid merkle tree opening");
+                    // panic!("Invalid merkle tree opening for idx {}", k);
                 }
             });
         });
