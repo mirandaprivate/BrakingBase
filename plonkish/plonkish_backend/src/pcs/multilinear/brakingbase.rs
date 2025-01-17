@@ -990,7 +990,6 @@ where
         let mut col_idx = vec![0 as usize; pp.num_brakedown_queries];
         for i in 0..pp.num_brakedown_queries {
             col_idx[i] = squeeze_challenge_idx(transcript, codeword_len);
-            //TODO(Ashish):- Understand this part. why skip and step by?
             (0..num_polys).for_each(|k| {
                 transcript
                     .write_field_elements(
@@ -998,18 +997,17 @@ where
                     )
                     .unwrap();
             });
-
             //TODO(Ashish):- After batch commit we don't need to individual intermediate hashes.
-            let mut offset = 0;
-            for (idx, width) in (1..=depth).rev().map(|depth| 1 << depth).enumerate() {
-                let neighbor_idx = (col_idx[i] >> idx) ^ 1;
-                (0..num_polys).for_each(|k| {
+            (0..num_polys).for_each(|k| {
+                let mut offset = 0;
+                for (idx, width) in (1..=depth).rev().map(|depth| 1 << depth).enumerate() {
+                    let neighbor_idx = (col_idx[i] >> idx) ^ 1;
                     transcript
                         .write_commitment(&comms[k].intermediate_hashes[offset + neighbor_idx])
                         .unwrap();
-                });
-                offset += width;
-            }
+                    offset += width;
+                }
+            });
         }
 
         let mut u = transcript.squeeze_challenges(row_len.ilog2().try_into().unwrap());
@@ -1811,23 +1809,23 @@ where
         let num_polys = comms.len();
         let combiners = transcript.squeeze_challenges(num_polys);
         let p_p_prime_commit = transcript.read_commitment().unwrap();
-       
+
         // Read all the queried columns and check their Merkle paths
         let depth = codeword_len.next_power_of_two().ilog2() as usize;
         let mut col_idx = vec![0 as usize; vp.num_brakedown_queries];
         let mut cols = vec![Vec::<F>::new(); num_polys];
-  
+
         let mut paths = Vec::new();
         for i in 0..vp.num_brakedown_queries {
             col_idx[i] = squeeze_challenge_idx(transcript, codeword_len);
-            // let mut temp_col = Vec::new();
+            
             (0..num_polys).for_each(|k| {
                 let col = transcript
                     .read_field_elements(vp.brakedown_num_rows)
                     .unwrap();
-                // temp_col.push(col);
                 cols[k].extend(col);
             });
+
             let mut temp_path = Vec::new();
             (0..num_polys).for_each(|k| {
                 let path = transcript.read_commitments(depth).unwrap();
@@ -1835,12 +1833,13 @@ where
             });
             paths.push(temp_path);
         }
-    
+
         (0..vp.num_brakedown_queries).for_each(|i| {
             let path = &paths[i];
             (0..num_polys).for_each(|k| {
                 let col =
                     cols[k][i * vp.brakedown_num_rows..(i + 1) * vp.brakedown_num_rows].to_vec();
+
                 // verify merkle tree opening
                 let mut hasher = H::new();
                 let mut output = {
@@ -1860,7 +1859,7 @@ where
                     output = hasher.finalize_fixed_reset();
                 }
                 if &output != &comms[k].root {
-                    // panic!("Invalid merkle tree opening for idx {}", k);
+                    panic!("Invalid merkle tree opening for idx {}", k);
                 }
             });
         });
