@@ -1,5 +1,3 @@
-use crate::pcs::multilinear::brakingbase::{Brakingbase, BrakingbaseProverParams, BrakingbaseSpec};
-use crate::util::hash::Hash;
 use crate::{
     pcs::PolynomialCommitmentScheme, poly::multilinear::MultilinearPolynomial,
     util::transcript::TranscriptWrite,
@@ -156,73 +154,41 @@ impl<F: PrimeField + Serialize + DeserializeOwned> SparseMetaData<F> {
             timestamps,
         }
     }
-    pub fn commit<H: Hash, S: BrakingbaseSpec>(
+    pub fn commit<Pcs>(
         &self,
-        pp1: &BrakingbaseProverParams<F, H>,
-        pp2: &BrakingbaseProverParams<F, H>,
-        transcript: &mut impl TranscriptWrite<
-            <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::CommitmentChunk,
-            F,
-        >,
+        pp1: &Pcs::ProverParam,
+        pp2: &Pcs::ProverParam,
+        transcript: &mut impl TranscriptWrite<Pcs::CommitmentChunk, F>,
     ) -> (
-        crate::pcs::multilinear::brakingbase::BrakingbaseCommitment<F, H>,
-        crate::pcs::multilinear::brakingbase::BrakingbaseCommitment<F, H>,
-        crate::pcs::multilinear::brakingbase::BrakingbaseCommitment<F, H>,
-        crate::pcs::multilinear::brakingbase::BrakingbaseCommitment<F, H>,
-        crate::pcs::multilinear::brakingbase::BrakingbaseCommitment<F, H>,
-        crate::pcs::multilinear::brakingbase::BrakingbaseCommitment<F, H>,
-        crate::pcs::multilinear::brakingbase::BrakingbaseCommitment<F, H>,
-    ) {
-        let row_commit =
-            <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::commit(pp1, &self.row)
-                .unwrap();
-        transcript.write_commitment(row_commit.as_ref()).unwrap();
+        Pcs::Commitment,
+        Pcs::Commitment,
+        Pcs::Commitment,
+        Pcs::Commitment,
+        Pcs::Commitment,
+        Pcs::Commitment,
+        Pcs::Commitment,
+    )
+    where
+        Pcs: PolynomialCommitmentScheme<F, Polynomial = MultilinearPolynomial<F>>,
+    {
+        let row_commit = Pcs::commit_and_write(pp1, &self.row, transcript).unwrap();
 
-        let col_commit =
-            <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::commit(pp1, &self.col)
-                .unwrap();
-        transcript.write_commitment(col_commit.as_ref()).unwrap();
+        let col_commit = Pcs::commit_and_write(pp1, &self.col, transcript).unwrap();
 
-        let val_commit =
-            <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::commit(pp1, &self.val)
-                .unwrap();
-        transcript.write_commitment(val_commit.as_ref()).unwrap();
+        let val_commit = Pcs::commit_and_write(pp1, &self.val, transcript).unwrap();
 
-        let read_ts_row_commit = <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::commit(
-            pp1,
-            &self.timestamps.read_ts_row,
-        )
-        .unwrap();
-        transcript
-            .write_commitment(read_ts_row_commit.as_ref())
-            .unwrap();
+        let read_ts_row_commit =
+            Pcs::commit_and_write(pp1, &self.timestamps.read_ts_row, transcript).unwrap();
 
-        let read_ts_col_commit = <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::commit(
-            pp1,
-            &self.timestamps.read_ts_col,
-        )
-        .unwrap();
-        transcript
-            .write_commitment(read_ts_col_commit.as_ref())
-            .unwrap();
+        let read_ts_col_commit =
+            Pcs::commit_and_write(pp1, &self.timestamps.read_ts_col, transcript).unwrap();
 
-        let final_ts_row_commit = <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::commit(
-            pp2,
-            &self.timestamps.final_ts_row,
-        )
-        .unwrap();
-        transcript
-            .write_commitment(final_ts_row_commit.as_ref())
-            .unwrap();
+        let final_ts_row_commit =
+            Pcs::commit_and_write(pp2, &self.timestamps.final_ts_row, transcript).unwrap();
 
-        let final_ts_col_commit = <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::commit(
-            pp2,
-            &self.timestamps.final_ts_col,
-        )
-        .unwrap();
-        transcript
-            .write_commitment(final_ts_col_commit.as_ref())
-            .unwrap();
+        let final_ts_col_commit =
+            Pcs::commit_and_write(pp2, &self.timestamps.final_ts_col, transcript).unwrap();
+
         (
             row_commit,
             col_commit,

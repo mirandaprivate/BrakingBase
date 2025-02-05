@@ -1,48 +1,33 @@
-use std::iter;
-
 use super::helper::SparseMetaData;
 use super::sum_check::matrix_eval_sum_check;
-use crate::pcs::multilinear::brakingbase::{
-    batch_sum_check_prover, BrakingbaseCommitment, BrakingbaseSpec,
-};
+use crate::pcs::multilinear::brakingbase::batch_sum_check_prover;
 use crate::pcs::multilinear::brakingbase_helper::{evaluate_poly, point_to_tensor};
 use crate::pcs::Evaluation;
 use crate::piop::GKR::gkr::gkr_prover;
 use crate::piop::GKR::gpc::grand_product_circuits;
 use crate::poly::multilinear::MultilinearPolynomial;
 use crate::poly::Polynomial;
-use crate::util::hash::Hash;
-use crate::{
-    pcs::{
-        multilinear::brakingbase::{Brakingbase, BrakingbaseProverParams},
-        PolynomialCommitmentScheme,
-    },
-    util::transcript::TranscriptWrite,
-};
+use crate::{pcs::PolynomialCommitmentScheme, util::transcript::TranscriptWrite};
 use ff::PrimeField;
-use itertools::{chain, Itertools};
+use itertools::Itertools;
 use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use serde::{de::DeserializeOwned, Serialize};
 
-pub fn batch_eval_proof<F, H, S>(
+pub fn batch_eval_proof<F, Pcs>(
     sparse_metadata: Vec<SparseMetaData<F>>,
     mut rx: Vec<F>,
     mut ry: Vec<F>,
     rx_basis_evals: Vec<F>,
-    E: &MultilinearPolynomial<F>,
-    W: &MultilinearPolynomial<F>,
-    pp1: &BrakingbaseProverParams<F, H>,
-    pp2: &BrakingbaseProverParams<F, H>,
-    commit1: &Vec<BrakingbaseCommitment<F, H>>,
-    commit2: &Vec<BrakingbaseCommitment<F, H>>,
-    transcript: &mut impl TranscriptWrite<
-        <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::CommitmentChunk,
-        F,
-    >,
+    E: &Pcs::Polynomial,
+    W: &Pcs::Polynomial,
+    pp1: &Pcs::ProverParam,
+    pp2: &Pcs::ProverParam,
+    commit1: &Vec<Pcs::Commitment>,
+    commit2: &Vec<Pcs::Commitment>,
+    transcript: &mut impl TranscriptWrite<Pcs::CommitmentChunk, F>,
 ) where
     F: PrimeField + Serialize + DeserializeOwned,
-    H: Hash,
-    S: BrakingbaseSpec,
+    Pcs: PolynomialCommitmentScheme<F, Polynomial = MultilinearPolynomial<F>>,
 {
     let ry_basis_evals = point_to_tensor(1, &ry.clone()).1;
 
@@ -84,32 +69,27 @@ pub fn batch_eval_proof<F, H, S>(
     let e_rx_commits: Vec<_> = e_rx
         .iter()
         .map(|rx_poly| {
-            <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::commit(
+            Pcs::commit_and_write(
                 pp1,
                 &MultilinearPolynomial::new(rx_poly.to_vec()),
+                transcript,
             )
             .unwrap()
         })
         .collect();
-
-    e_rx_commits.iter().for_each(|commit| {
-        transcript.write_commitment(commit.as_ref()).unwrap();
-    });
 
     let e_ry_commits: Vec<_> = e_ry
         .iter()
         .map(|ry_poly| {
-            <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::commit(
+            Pcs::commit_and_write(
                 pp1,
                 &MultilinearPolynomial::new(ry_poly.to_vec()),
+                transcript,
             )
             .unwrap()
         })
         .collect();
 
-    e_ry_commits.iter().for_each(|commit| {
-        transcript.write_commitment(commit.as_ref()).unwrap();
-    });
     let commit1: Vec<_> = commit1
         .iter()
         .chain(e_rx_commits.iter())
@@ -123,7 +103,7 @@ pub fn batch_eval_proof<F, H, S>(
         .collect();
 
     let be_sc_rp =
-        matrix_eval_sum_check::<F, H, S>(val.clone(), e_rx.clone(), e_ry.clone(), transcript);
+        matrix_eval_sum_check::<F, Pcs>(val.clone(), e_rx.clone(), e_ry.clone(), transcript);
 
     let rows: Vec<Vec<F>> = sparse_metadata
         .iter()
@@ -195,7 +175,7 @@ pub fn batch_eval_proof<F, H, S>(
         },
     );
 
-    let mut random_points1 = gkr_prover::<F, H, S>(
+    let mut random_points1 = gkr_prover::<F, Pcs>(
         &[w_init_circuit_layers_row]
             .iter()
             .chain(s_circuit_layers_row.iter())
@@ -205,7 +185,7 @@ pub fn batch_eval_proof<F, H, S>(
         transcript,
     );
 
-    let random_points2 = gkr_prover::<F, H, S>(
+    let random_points2 = gkr_prover::<F, Pcs>(
         &w_update_circuit_layers_row
             .iter()
             .chain(r_circuit_layers_row.iter())
@@ -393,7 +373,7 @@ pub fn batch_eval_proof<F, H, S>(
     eqs.push(eq_random_points2);
     eqs.push(eq_random_points1);
 
-    let (_, batch_sum_check_rp) = batch_sum_check_prover::<F, H, S>(&mut polys, eqs, transcript);
+    let (_, batch_sum_check_rp) = batch_sum_check_prover::<F, Pcs>(&mut polys, eqs, transcript);
 
     let (
         (
@@ -514,7 +494,7 @@ pub fn batch_eval_proof<F, H, S>(
         .map(|eval| Evaluation::new(0, 0, *eval))
         .collect_vec();
 
-    <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::batch_open(
+    Pcs::batch_open(
         pp1,
         None,
         &commit1,
@@ -523,7 +503,7 @@ pub fn batch_eval_proof<F, H, S>(
         transcript,
     )
     .unwrap();
-    <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::batch_open(
+    Pcs::batch_open(
         pp2,
         None,
         commit2,

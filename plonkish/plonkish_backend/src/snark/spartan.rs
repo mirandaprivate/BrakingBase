@@ -4,45 +4,37 @@ use super::sum_check::{
     batch_sum_check_verifier, first_layer_sum_check, initial_sum_check_verification,
     matrix_eval_sum_check_verifier, par_sum_check_verification, parallel_sum_checks,
 };
-use crate::pcs::multilinear::brakingbase::{
-    Brakingbase, BrakingbaseCommitment, BrakingbaseProverParams, BrakingbaseSpec,
-    BrakingbaseVerifierParams,
-};
 use crate::pcs::multilinear::brakingbase_helper::{evaluate_eq, point_to_tensor};
 use crate::pcs::{Evaluation, PolynomialCommitmentScheme};
 use crate::piop::GKR::gkr::gkr_verifier;
 use crate::piop::GKR::helper::evaluate_indicies;
 use crate::poly::Polynomial;
-use crate::util::hash::Hash;
 use crate::util::transcript::TranscriptRead;
 use crate::{poly::multilinear::MultilinearPolynomial, util::transcript::TranscriptWrite};
 use ff::PrimeField;
-use itertools::{chain, Itertools};
+use itertools::Itertools;
 use serde::{de::DeserializeOwned, Serialize};
+
 #[allow(non_snake_case)]
-pub fn prove_sat<F, H, S>(
+pub fn prove_sat<F, Pcs>(
     A: &SparseRep<F>,
     B: &SparseRep<F>,
     C: &SparseRep<F>,
     u: &F,
-    z: &MultilinearPolynomial<F>,
-    E: &MultilinearPolynomial<F>,
-    W: &MultilinearPolynomial<F>,
+    z: &Pcs::Polynomial,
+    E: &Pcs::Polynomial,
+    W: &Pcs::Polynomial,
     metadatas: eR1CSmetadata<F>,
-    pp1: &BrakingbaseProverParams<F, H>,
-    pp2: &BrakingbaseProverParams<F, H>,
-    commit1: &Vec<BrakingbaseCommitment<F, H>>,
-    commit2: &Vec<BrakingbaseCommitment<F, H>>,
-    transcript: &mut impl TranscriptWrite<
-        <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::CommitmentChunk,
-        F,
-    >,
+    pp1: &Pcs::ProverParam,
+    pp2: &Pcs::ProverParam,
+    commit1: &Vec<Pcs::Commitment>,
+    commit2: &Vec<Pcs::Commitment>,
+    transcript: &mut impl TranscriptWrite<Pcs::CommitmentChunk, F>,
 ) where
     F: PrimeField + Serialize + DeserializeOwned,
-    H: Hash,
-    S: BrakingbaseSpec,
+    Pcs: PolynomialCommitmentScheme<F, Polynomial = MultilinearPolynomial<F>>,
 {
-    let fsrp = first_layer_sum_check::<F, H, S>(
+    let fsrp = first_layer_sum_check::<F, Pcs>(
         &A,
         &B,
         &C,
@@ -55,7 +47,7 @@ pub fn prove_sat<F, H, S>(
     let rx_basis_evals = point_to_tensor(1, &fsrp).1;
 
     // let rx_basis_evals = compute_coeff(&first_sum_check_transcript.random_points);
-    let par_srp = parallel_sum_checks::<F, H, S>(
+    let par_srp = parallel_sum_checks::<F, Pcs>(
         &A,
         &B,
         &C,
@@ -68,7 +60,7 @@ pub fn prove_sat<F, H, S>(
 
     let metadatas = vec![metadatas.A, metadatas.B, metadatas.C];
 
-    batch_eval_proof::<F, H, S>(
+    batch_eval_proof::<F, Pcs>(
         metadatas,
         fsrp,
         par_srp,
@@ -84,52 +76,48 @@ pub fn prove_sat<F, H, S>(
 }
 
 #[allow(non_snake_case)]
-pub fn verify_sat<F, H, S>(
+pub fn verify_sat<F, Pcs>(
     num_const: usize,
     sparsity: usize,
-    vp1: &BrakingbaseVerifierParams<F, H>,
-    vp2: &BrakingbaseVerifierParams<F, H>,
+    vp1: &Pcs::VerifierParam,
+    vp2: &Pcs::VerifierParam,
     u: F,
-    PI: MultilinearPolynomial<F>,
+    PI: Pcs::Polynomial,
     pi_indices: Vec<usize>,
-    transcript: &mut impl TranscriptRead<
-        <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::CommitmentChunk,
-        F,
-    >,
+    transcript: &mut impl TranscriptRead<Pcs::CommitmentChunk, F>,
 ) where
     F: PrimeField + Serialize + DeserializeOwned,
-    H: Hash,
-    S: BrakingbaseSpec,
+    Pcs: PolynomialCommitmentScheme<F, Polynomial = MultilinearPolynomial<F>>,
 {
-    let E_commit = transcript.read_commitment().unwrap();
-    let W_commit = transcript.read_commitment().unwrap();
+    let E_commit = Pcs::read_commitment(vp2, transcript).unwrap();
+    let W_commit = Pcs::read_commitment(vp2, transcript).unwrap();
 
-    let A_row_commit = transcript.read_commitment().unwrap();
-    let A_col_commit = transcript.read_commitment().unwrap();
-    let A_val_commit = transcript.read_commitment().unwrap();
-    let A_read_ts_row_commit = transcript.read_commitment().unwrap();
-    let A_read_ts_col_commit = transcript.read_commitment().unwrap();
-    let A_final_ts_row_commit = transcript.read_commitment().unwrap();
-    let A_final_ts_col_commit = transcript.read_commitment().unwrap();
+    let A_row_commit = Pcs::read_commitment(vp1, transcript).unwrap();
+    let A_col_commit = Pcs::read_commitment(vp1, transcript).unwrap();
+    let A_val_commit = Pcs::read_commitment(vp1, transcript).unwrap();
+    let A_read_ts_row_commit = Pcs::read_commitment(vp1, transcript).unwrap();
+    let A_read_ts_col_commit = Pcs::read_commitment(vp1, transcript).unwrap();
+    let A_final_ts_row_commit = Pcs::read_commitment(vp2, transcript).unwrap();
+    let A_final_ts_col_commit = Pcs::read_commitment(vp2, transcript).unwrap();
 
-    let B_row_commit = transcript.read_commitment().unwrap();
-    let B_col_commit = transcript.read_commitment().unwrap();
-    let B_val_commit = transcript.read_commitment().unwrap();
-    let B_read_ts_row_commit = transcript.read_commitment().unwrap();
-    let B_read_ts_col_commit = transcript.read_commitment().unwrap();
-    let B_final_ts_row_commit = transcript.read_commitment().unwrap();
-    let B_final_ts_col_commit = transcript.read_commitment().unwrap();
+    let B_row_commit = Pcs::read_commitment(vp1, transcript).unwrap();
+    let B_col_commit = Pcs::read_commitment(vp1, transcript).unwrap();
+    let B_val_commit = Pcs::read_commitment(vp1, transcript).unwrap();
+    let B_read_ts_row_commit = Pcs::read_commitment(vp1, transcript).unwrap();
+    let B_read_ts_col_commit = Pcs::read_commitment(vp1, transcript).unwrap();
+    let B_final_ts_row_commit = Pcs::read_commitment(vp2, transcript).unwrap();
+    let B_final_ts_col_commit = Pcs::read_commitment(vp2, transcript).unwrap();
 
-    let C_row_commit = transcript.read_commitment().unwrap();
-    let C_col_commit = transcript.read_commitment().unwrap();
-    let C_val_commit = transcript.read_commitment().unwrap();
-    let C_read_ts_row_commit = transcript.read_commitment().unwrap();
-    let C_read_ts_col_commit = transcript.read_commitment().unwrap();
-    let C_final_ts_row_commit = transcript.read_commitment().unwrap();
-    let C_final_ts_col_commit = transcript.read_commitment().unwrap();
+    let C_row_commit = Pcs::read_commitment(vp1, transcript).unwrap();
+    let C_col_commit = Pcs::read_commitment(vp1, transcript).unwrap();
+    let C_val_commit = Pcs::read_commitment(vp1, transcript).unwrap();
+    let C_read_ts_row_commit = Pcs::read_commitment(vp1, transcript).unwrap();
+    let C_read_ts_col_commit = Pcs::read_commitment(vp1, transcript).unwrap();
+    let C_final_ts_row_commit = Pcs::read_commitment(vp2, transcript).unwrap();
+    let C_final_ts_col_commit = Pcs::read_commitment(vp2, transcript).unwrap();
 
     let (initial_sc_evals, r_x) =
-        initial_sum_check_verification::<F, H, S>(num_const, u, transcript);
+        initial_sum_check_verification::<F, Pcs>(num_const, u, transcript);
 
     let random_coeffs = transcript.squeeze_challenges(3);
 
@@ -137,7 +125,7 @@ pub fn verify_sat<F, H, S>(
         + random_coeffs[1] * initial_sc_evals[1]
         + random_coeffs[2] * initial_sc_evals[2];
 
-    let (r_y, a_b_c_claimed, w_eval) = par_sum_check_verification::<F, H, S>(
+    let (r_y, a_b_c_claimed, w_eval) = par_sum_check_verification::<F, Pcs>(
         num_const,
         pi_indices,
         PI,
@@ -146,9 +134,9 @@ pub fn verify_sat<F, H, S>(
         transcript,
     );
 
-    let e_rx_commits = transcript.read_commitments(3).unwrap();
-    let e_ry_commits = transcript.read_commitments(3).unwrap();
-    let commit1: Vec<BrakingbaseCommitment<F, H>> = vec![
+    let e_rx_commits = Pcs::read_commitments(vp2, 3, transcript).unwrap();
+    let e_ry_commits = Pcs::read_commitments(vp2, 3, transcript).unwrap();
+    let commit1: Vec<_> = vec![
         A_row_commit,
         B_row_commit,
         C_row_commit,
@@ -168,10 +156,9 @@ pub fn verify_sat<F, H, S>(
     .into_iter()
     .chain(e_rx_commits.into_iter())
     .chain(e_ry_commits.into_iter())
-    .map(|commit| BrakingbaseCommitment::from_root(commit))
     .collect();
 
-    let commit2: Vec<BrakingbaseCommitment<F, H>> = vec![
+    let commit2: Vec<_> = vec![
         A_final_ts_row_commit,
         B_final_ts_row_commit,
         C_final_ts_row_commit,
@@ -182,7 +169,6 @@ pub fn verify_sat<F, H, S>(
         W_commit,
     ]
     .into_iter()
-    .map(|commit| BrakingbaseCommitment::from_root(commit))
     .collect();
 
     let random_coeffs = transcript.squeeze_challenges(3);
@@ -194,7 +180,7 @@ pub fn verify_sat<F, H, S>(
         .unwrap();
 
     let (be_sc_rp, be_e_rx_evals, be_e_ry_evals, be_val_evals) =
-        matrix_eval_sum_check_verifier::<F, H, S>(
+        matrix_eval_sum_check_verifier::<F, Pcs>(
             num_const,
             sparsity,
             evaluation,
@@ -390,7 +376,7 @@ pub fn verify_sat<F, H, S>(
         E_eval,
         W_eval,
         bt_sc_rp,
-    ) = batch_sum_check_verifier::<F, H, S>(batch_r, initial_claim, transcript, &batch_sc_rc);
+    ) = batch_sum_check_verifier::<F, Pcs>(batch_r, initial_claim, transcript, &batch_sc_rc);
 
     let evals1: Vec<F> = rows_evals
         .iter()
@@ -421,7 +407,7 @@ pub fn verify_sat<F, H, S>(
         .map(|eval| Evaluation::new(0, 0, *eval))
         .collect_vec();
 
-    <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::batch_verify(
+    Pcs::batch_verify(
         vp1,
         &commit1,
         &[bt_sc_rp.clone()].to_vec(),
@@ -429,7 +415,7 @@ pub fn verify_sat<F, H, S>(
         transcript,
     )
     .unwrap();
-    <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::batch_verify(
+    Pcs::batch_verify(
         vp2,
         &commit2,
         &[bt_sc_rp[bt_sc_rp.len() - num_var_witness..].to_vec()].to_vec(),

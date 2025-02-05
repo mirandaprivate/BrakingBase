@@ -51,7 +51,7 @@ impl BasefoldExtParams for Five {
     }
 }
 
-type Pcs = Brakingbase<GoldilocksMont, Blake2s256, Five>;
+type CommitmentScheme = Brakingbase<GoldilocksMont, Blake2s256, Five>;
 #[test]
 pub fn er1cs_test() {
     let num_const = 1 << 11;
@@ -71,10 +71,10 @@ pub fn er1cs_test() {
         "num_pi_inputs must be a power of 2"
     );
 
-    let param1 = Pcs::setup(num_const * sparsity, 1, &mut rng).unwrap();
-    let param2 = Pcs::setup(num_const, 1, &mut rng).unwrap();
-    let (pp1, vp1) = Pcs::trim(&param1, num_const * sparsity, 1).unwrap();
-    let (pp2, vp2) = Pcs::trim(&param2, num_const, 1).unwrap();
+    let param1 = CommitmentScheme::setup(num_const * sparsity, 1, &mut rng).unwrap();
+    let param2 = CommitmentScheme::setup(num_const, 1, &mut rng).unwrap();
+    let (pp1, vp1) = CommitmentScheme::trim(&param1, num_const * sparsity, 1).unwrap();
+    let (pp2, vp2) = CommitmentScheme::trim(&param2, num_const, 1).unwrap();
     let depth = (num_const as u32 * sparsity as u32).trailing_zeros();
     let (A, B, C, z, E, W, u, PI) = construct_matrices::<GoldilocksMont>(
         sparsity as usize,
@@ -85,7 +85,7 @@ pub fn er1cs_test() {
 
     let mut transcript = Blake2s256Transcript::new(());
 
-    let (er1cs_metadata, commit1, commit2) = er1cs_commit::<GoldilocksMont, Blake2s256, Five>(
+    let (er1cs_metadata, commit1, commit2) = er1cs_commit::<GoldilocksMont, CommitmentScheme>(
         &A,
         &B,
         &C,
@@ -98,7 +98,7 @@ pub fn er1cs_test() {
     );
 
     let time = Instant::now();
-    prove_sat::<GoldilocksMont, Blake2s256, Five>(
+    prove_sat::<GoldilocksMont, CommitmentScheme>(
         &A,
         &B,
         &C,
@@ -124,7 +124,7 @@ pub fn er1cs_test() {
 
     let pi_indices: Vec<usize> = (0..1 << 5).collect();
 
-    verify_sat::<GoldilocksMont, Blake2s256, Five>(
+    verify_sat::<GoldilocksMont, CommitmentScheme>(
         num_const,
         sparsity,
         &vp1,
@@ -207,41 +207,30 @@ pub fn construct_matrices<F: PrimeField + Serialize + DeserializeOwned>(
         PI,
     )
 }
-pub fn er1cs_commit<
-    'a,
-    F: PrimeField + Serialize + DeserializeOwned,
-    H: Hash,
-    S: BrakingbaseSpec,
->(
+pub fn er1cs_commit<'a, F, Pcs>(
     A: &'a SparseRep<F>,
     B: &'a SparseRep<F>,
     C: &'a SparseRep<F>,
-    E: &'a MultilinearPolynomial<F>,
-    W: &'a MultilinearPolynomial<F>,
-    pp1: &'a BrakingbaseProverParams<F, H>,
-    pp2: &'a BrakingbaseProverParams<F, H>,
+    E: &'a Pcs::Polynomial,
+    W: &'a Pcs::Polynomial,
+    pp1: &'a Pcs::ProverParam,
+    pp2: &'a Pcs::ProverParam,
     sparsity: usize,
-    transcript: &'a mut impl TranscriptWrite<
-        <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::CommitmentChunk,
-        F,
-    >,
-) -> (
-    eR1CSmetadata<F>,
-    Vec<BrakingbaseCommitment<F, H>>,
-    Vec<BrakingbaseCommitment<F, H>>,
-) {
+    transcript: &mut impl TranscriptWrite<Pcs::CommitmentChunk, F>,
+) -> (eR1CSmetadata<F>, Vec<Pcs::Commitment>, Vec<Pcs::Commitment>)
+where
+    F: PrimeField + Serialize + DeserializeOwned,
+
+    Pcs: PolynomialCommitmentScheme<F, Polynomial = MultilinearPolynomial<F>>,
+{
     let A_metadata = &A.get_metadata(sparsity);
     let B_metadata = &B.get_metadata(sparsity);
     let C_metadata = &C.get_metadata(sparsity);
     let start_time = Instant::now();
 
-    let E_commit =
-        <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::commit(pp2, &E).unwrap();
-    transcript.write_commitment(E_commit.as_ref()).unwrap();
+    let E_commit = Pcs::commit_and_write(pp2, &E, transcript).unwrap();
 
-    let W_commit =
-        <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::commit(pp2, &W).unwrap();
-    transcript.write_commitment(&W_commit.as_ref()).unwrap();
+    let W_commit = Pcs::commit_and_write(pp2, &W, transcript).unwrap();
 
     let (
         A_row_commit,
@@ -251,7 +240,7 @@ pub fn er1cs_commit<
         A_read_ts_col_commit,
         A_final_ts_row_commit,
         A_final_ts_col_commit,
-    ) = A_metadata.commit::<H, S>(pp1, pp2, transcript);
+    ) = A_metadata.commit::<Pcs>(pp1, pp2, transcript);
     let (
         B_row_commit,
         B_col_commit,
@@ -260,7 +249,7 @@ pub fn er1cs_commit<
         B_read_ts_col_commit,
         B_final_ts_row_commit,
         B_final_ts_col_commit,
-    ) = B_metadata.commit::<H, S>(pp1, pp2, transcript);
+    ) = B_metadata.commit::<Pcs>(pp1, pp2, transcript);
     let (
         C_row_commit,
         C_col_commit,
@@ -269,7 +258,7 @@ pub fn er1cs_commit<
         C_read_ts_col_commit,
         C_final_ts_row_commit,
         C_final_ts_col_commit,
-    ) = C_metadata.commit::<H, S>(pp1, pp2, transcript);
+    ) = C_metadata.commit::<Pcs>(pp1, pp2, transcript);
     let commit1 = vec![
         A_row_commit,
         B_row_commit,

@@ -1,5 +1,6 @@
 use super::helper::{compute_fourier_bases, len_4_interpolate};
 use crate::pcs::multilinear::brakingbase_helper::{eval, evaluate_eq, par_fold_by_msb};
+use crate::poly::multilinear::MultilinearPolynomial;
 use crate::util::hash::Hash;
 use crate::util::transcript::FieldTranscriptRead;
 use crate::{
@@ -38,13 +39,14 @@ impl<F: PrimeField> GkrTranscript<F> {
     }
 }
 //Prover for the sub-circuit corresponding to the leaf layer inputs of length of the table.
-pub fn gkr_prover<F: PrimeField + Serialize + DeserializeOwned, H: Hash, S: BrakingbaseSpec>(
+pub fn gkr_prover<F, Pcs>(
     circuits: &Vec<&Vec<Vec<F>>>,
-    transcript: &mut impl TranscriptWrite<
-        <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::CommitmentChunk,
-        F,
-    >,
-) -> Vec<F> {
+    transcript: &mut impl TranscriptWrite<Pcs::CommitmentChunk, F>,
+) -> Vec<F>
+where
+    F: PrimeField + Serialize + DeserializeOwned,
+    Pcs: PolynomialCommitmentScheme<F, Polynomial = MultilinearPolynomial<F>>,
+{
     let depth = circuits[0].len() - 1;
     circuits.iter().for_each(|circuit| {
         assert_eq!(depth, circuit.len() - 1, "Circuits do not have same depth")

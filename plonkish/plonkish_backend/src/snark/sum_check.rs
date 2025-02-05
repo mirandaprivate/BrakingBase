@@ -1,33 +1,27 @@
 use super::helper::{sparse_matrix_multiply, SparseRep};
-use crate::pcs::multilinear::brakingbase::{Brakingbase, BrakingbaseSpec};
 use crate::pcs::multilinear::brakingbase_helper::{
     eval, evaluate_eq, par_fold_by_msb, point_to_tensor,
 };
 use crate::pcs::PolynomialCommitmentScheme;
 use crate::poly::multilinear::MultilinearPolynomial;
 use crate::poly::Polynomial;
-use crate::util::hash::Hash;
 use crate::util::transcript::{TranscriptRead, TranscriptWrite};
 use ff::PrimeField;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use serde::{de::DeserializeOwned, Serialize};
 #[allow(non_snake_case)]
-pub fn first_layer_sum_check<F, H, S>(
+pub fn first_layer_sum_check<F, Pcs>(
     A: &SparseRep<F>,
     B: &SparseRep<F>,
     C: &SparseRep<F>,
     u: &F,
     z: &Vec<F>,
     mut E: Vec<F>,
-    transcript: &mut impl TranscriptWrite<
-        <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::CommitmentChunk,
-        F,
-    >,
+    transcript: &mut impl TranscriptWrite<Pcs::CommitmentChunk, F>,
 ) -> Vec<F>
 where
     F: PrimeField + Serialize + DeserializeOwned,
-    H: Hash,
-    S: BrakingbaseSpec,
+    Pcs: PolynomialCommitmentScheme<F, Polynomial = MultilinearPolynomial<F>>,
 {
     let mut Az = sparse_matrix_multiply(A, &z);
 
@@ -108,21 +102,17 @@ where
 }
 
 #[allow(non_snake_case)]
-pub fn parallel_sum_checks<F, H, S>(
+pub fn parallel_sum_checks<F, Pcs>(
     A: &SparseRep<F>,
     B: &SparseRep<F>,
     C: &SparseRep<F>,
     mut Z: Vec<F>,
     rx_basis_evals: Vec<F>,
-    transcript: &mut impl TranscriptWrite<
-        <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::CommitmentChunk,
-        F,
-    >,
+    transcript: &mut impl TranscriptWrite<Pcs::CommitmentChunk, F>,
 ) -> Vec<F>
 where
     F: PrimeField + Serialize + DeserializeOwned,
-    H: Hash,
-    S: BrakingbaseSpec,
+    Pcs: PolynomialCommitmentScheme<F, Polynomial = MultilinearPolynomial<F>>,
 {
     let z_len = Z.len();
     let sum_check_rounds = z_len.trailing_zeros() as usize;
@@ -189,18 +179,14 @@ where
     par_sum_check_random_points
 }
 
-pub fn initial_sum_check_verification<F, H, S>(
+pub fn initial_sum_check_verification<F, Pcs>(
     num_const: usize,
     u: F,
-    transcript: &mut impl TranscriptRead<
-        <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::CommitmentChunk,
-        F,
-    >,
+    transcript: &mut impl TranscriptRead<Pcs::CommitmentChunk, F>,
 ) -> (Vec<F>, Vec<F>)
 where
     F: PrimeField + Serialize + DeserializeOwned,
-    H: Hash,
-    S: BrakingbaseSpec,
+    Pcs: PolynomialCommitmentScheme<F, Polynomial = MultilinearPolynomial<F>>,
 {
     let rounds = num_const.trailing_zeros() as usize;
     let tau = transcript.squeeze_challenges(rounds);
@@ -231,21 +217,17 @@ where
     (eval, r)
 }
 
-pub fn par_sum_check_verification<F, H, S>(
+pub fn par_sum_check_verification<F, Pcs>(
     num_const: usize,
     pi_indices: Vec<usize>,
     PI: MultilinearPolynomial<F>,
     random_coeffs: &Vec<F>,
     initial_evaluation: F,
-    transcript: &mut impl TranscriptRead<
-        <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::CommitmentChunk,
-        F,
-    >,
+    transcript: &mut impl TranscriptRead<Pcs::CommitmentChunk, F>,
 ) -> (Vec<F>, Vec<F>, F)
 where
     F: PrimeField + Serialize + DeserializeOwned,
-    H: Hash,
-    S: BrakingbaseSpec,
+    Pcs: PolynomialCommitmentScheme<F, Polynomial = MultilinearPolynomial<F>>,
 {
     let mut current_sum = initial_evaluation;
 
@@ -281,19 +263,15 @@ where
     (r, a_b_c_evals, w_eval)
 }
 
-pub fn matrix_eval_sum_check<F, H, S>(
+pub fn matrix_eval_sum_check<F, Pcs>(
     mut val: Vec<Vec<F>>,
     mut e_rx: Vec<Vec<F>>,
     mut e_ry: Vec<Vec<F>>,
-    transcript: &mut impl TranscriptWrite<
-        <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::CommitmentChunk,
-        F,
-    >,
+    transcript: &mut impl TranscriptWrite<Pcs::CommitmentChunk, F>,
 ) -> Vec<F>
 where
     F: PrimeField + Serialize + DeserializeOwned,
-    H: Hash,
-    S: BrakingbaseSpec,
+    Pcs: PolynomialCommitmentScheme<F, Polynomial = MultilinearPolynomial<F>>,
 {
     let sum_check_rounds = val[0].len().trailing_zeros() as usize;
     let random_coeffs = transcript.squeeze_challenges(3);
@@ -372,20 +350,16 @@ where
     sum_check_random_points
 }
 
-pub fn matrix_eval_sum_check_verifier<F, H, S>(
+pub fn matrix_eval_sum_check_verifier<F, Pcs>(
     num_const: usize,
     sparsity: usize,
     initial_evaluation: F,
     random_coeffs: Vec<F>,
-    transcript: &mut impl TranscriptRead<
-        <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::CommitmentChunk,
-        F,
-    >,
+    transcript: &mut impl TranscriptRead<Pcs::CommitmentChunk, F>,
 ) -> (Vec<F>, Vec<F>, Vec<F>, Vec<F>)
 where
     F: PrimeField + Serialize + DeserializeOwned,
-    H: Hash,
-    S: BrakingbaseSpec,
+    Pcs: PolynomialCommitmentScheme<F, Polynomial = MultilinearPolynomial<F>>,
 {
     let rounds = ((num_const * sparsity) as u32).trailing_zeros() as usize;
     let mut current_sum = initial_evaluation;
@@ -443,13 +417,10 @@ pub fn evaluate_PI<F: PrimeField + Serialize + DeserializeOwned>(
     eval
 }
 
-pub fn batch_sum_check_verifier<F, H, S>(
+pub fn batch_sum_check_verifier<F, Pcs>(
     mut r_x: Vec<Vec<F>>,
     claimed_eval: F,
-    transcript: &mut impl TranscriptRead<
-        <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::CommitmentChunk,
-        F,
-    >,
+    transcript: &mut impl TranscriptRead<Pcs::CommitmentChunk, F>,
     batch_sc_rc: &Vec<F>,
 ) -> (
     Vec<F>,
@@ -467,8 +438,7 @@ pub fn batch_sum_check_verifier<F, H, S>(
 )
 where
     F: PrimeField + Serialize + DeserializeOwned,
-    H: Hash,
-    S: BrakingbaseSpec,
+    Pcs: PolynomialCommitmentScheme<F, Polynomial = MultilinearPolynomial<F>>,
 {
     let mut actual_result = claimed_eval;
     let mut r_y = Vec::new();

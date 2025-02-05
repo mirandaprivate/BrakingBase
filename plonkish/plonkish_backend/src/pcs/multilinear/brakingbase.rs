@@ -19,6 +19,7 @@ use crate::piop::GKR::gkr::{gkr_prover, gkr_verifier};
 use crate::piop::GKR::gpc::grand_product_circuits;
 use crate::piop::GKR::helper::{input_layer_check1, input_layer_check2};
 use crate::util::code::{self, ParityCheckMatrix};
+use crate::util::goldilocksMont::GoldilocksMont;
 use crate::util::transcript::FieldTranscriptRead;
 use crate::{
     pcs::{
@@ -40,6 +41,7 @@ use crate::{
 };
 use aes::cipher::{KeyIvInit, StreamCipher, StreamCipherSeek};
 use bitvec::vec;
+use blake2::Blake2s256;
 use core::fmt::Debug;
 use core::ptr::addr_of;
 use core::{hash, num, panic};
@@ -618,7 +620,7 @@ where
             },
         );
 
-        let random_points1 = gkr_prover::<F, H, S>(
+        let random_points1 = gkr_prover::<F, Brakingbase<F, H, S>>(
             &[
                 &w_init_circuit_layers_row,
                 &s_circuit_layers_row[0],
@@ -632,7 +634,7 @@ where
         let final_ts_col_eval = evaluate_poly(&final_ts_col, &random_points1);
         transcript.write_field_elements(&[final_ts_row_eval, final_ts_col_eval]);
 
-        let random_points2 = gkr_prover::<F, H, S>(
+        let random_points2 = gkr_prover::<F, Brakingbase<F, H, S>>(
             &[
                 &w_update_circuit_layers_row[0],
                 &r_circuit_layers_row[0],
@@ -821,7 +823,7 @@ where
 
         let start_time = Instant::now();
         let (p_p_prime_eval, mut batch_sum_check_rp) =
-            batch_sum_check_prover::<F, H, S>(&mut polys, eqs, transcript);
+            batch_sum_check_prover::<F, Brakingbase<F, H, S>>(&mut polys, eqs, transcript);
         transcript.write_field_element(&p_p_prime_eval);
 
         let (
@@ -1168,7 +1170,7 @@ where
             },
         );
 
-        let random_points1 = gkr_prover::<F, H, S>(
+        let random_points1 = gkr_prover::<F, Brakingbase<F, H, S>>(
             &[
                 &w_init_circuit_layers_row,
                 &s_circuit_layers_row[0],
@@ -1182,7 +1184,7 @@ where
         let final_ts_col_eval = evaluate_poly(&final_ts_col, &random_points1);
         transcript.write_field_elements(&[final_ts_row_eval, final_ts_col_eval]);
 
-        let random_points2 = gkr_prover::<F, H, S>(
+        let random_points2 = gkr_prover::<F, Brakingbase<F, H, S>>(
             &[
                 &w_update_circuit_layers_row[0],
                 &r_circuit_layers_row[0],
@@ -1371,7 +1373,7 @@ where
 
         let start_time = Instant::now();
         let (p_p_prime_eval, mut batch_sum_check_rp) =
-            batch_sum_check_prover::<F, H, S>(&mut polys, eqs, transcript);
+            batch_sum_check_prover::<F, Brakingbase<F, H, S>>(&mut polys, eqs, transcript);
         transcript.write_field_element(&p_p_prime_eval);
 
         let (
@@ -2324,18 +2326,15 @@ pub fn second_sum_check_prover<F, H, S>(
     transcript.write_field_element(&h_ecol[0]);
 }
 
-pub(crate) fn batch_sum_check_prover<
-    F: PrimeField + Serialize + DeserializeOwned,
-    H: Hash,
-    S: BrakingbaseSpec,
->(
+pub(crate) fn batch_sum_check_prover<F, Pcs>(
     polys: &mut Vec<Vec<F>>,
     mut eqs: Vec<Vec<F>>,
-    transcript: &mut impl TranscriptWrite<
-        <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::CommitmentChunk,
-        F,
-    >,
-) -> (F, Vec<F>) {
+    transcript: &mut impl TranscriptWrite<Pcs::CommitmentChunk, F>,
+) -> (F, Vec<F>)
+where
+    F: PrimeField + Serialize + DeserializeOwned,
+    Pcs: PolynomialCommitmentScheme<F, Polynomial = MultilinearPolynomial<F>>,
+{
     let sum_check_rounds = polys[0].len().trailing_zeros() as usize;
 
     // random points over the sum check rounds
