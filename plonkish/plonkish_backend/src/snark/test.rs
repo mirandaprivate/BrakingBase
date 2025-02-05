@@ -54,7 +54,7 @@ impl BasefoldExtParams for Five {
 type Pcs = Brakingbase<GoldilocksMont, Blake2s256, Five>;
 #[test]
 pub fn er1cs_test() {
-    let num_const = 1 << 10;
+    let num_const = 1 << 11;
     let num_pi_inputs: usize = 8;
     let num_var = num_const - 1;
     let sparsity: usize = 2;
@@ -71,8 +71,10 @@ pub fn er1cs_test() {
         "num_pi_inputs must be a power of 2"
     );
 
-    let param = Pcs::setup(num_const * sparsity, 1, &mut rng).unwrap();
-    let (pp, vp) = Pcs::trim(&param, num_const * sparsity, 1).unwrap();
+    let param1 = Pcs::setup(num_const * sparsity, 1, &mut rng).unwrap();
+    let param2 = Pcs::setup(num_const, 1, &mut rng).unwrap();
+    let (pp1, vp1) = Pcs::trim(&param1, num_const * sparsity, 1).unwrap();
+    let (pp2, vp2) = Pcs::trim(&param2, num_const, 1).unwrap();
     let depth = (num_const as u32 * sparsity as u32).trailing_zeros();
     let (A, B, C, z, E, W, u, PI) = construct_matrices::<GoldilocksMont>(
         sparsity as usize,
@@ -89,7 +91,8 @@ pub fn er1cs_test() {
         &C,
         &E,
         &W,
-        &pp,
+        &pp1,
+        &pp2,
         sparsity,
         &mut transcript,
     );
@@ -104,7 +107,8 @@ pub fn er1cs_test() {
         &E,
         &W,
         er1cs_metadata,
-        &pp,
+        &pp1,
+        &pp2,
         &commit1,
         &commit2,
         &mut transcript,
@@ -123,7 +127,8 @@ pub fn er1cs_test() {
     verify_sat::<GoldilocksMont, Blake2s256, Five>(
         num_const,
         sparsity,
-        &vp,
+        &vp1,
+        &vp2,
         u,
         MultilinearPolynomial::new(PI),
         pi_indices,
@@ -213,7 +218,8 @@ pub fn er1cs_commit<
     C: &'a SparseRep<F>,
     E: &'a MultilinearPolynomial<F>,
     W: &'a MultilinearPolynomial<F>,
-    pp: &'a BrakingbaseProverParams<F, H>,
+    pp1: &'a BrakingbaseProverParams<F, H>,
+    pp2: &'a BrakingbaseProverParams<F, H>,
     sparsity: usize,
     transcript: &'a mut impl TranscriptWrite<
         <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::CommitmentChunk,
@@ -229,10 +235,12 @@ pub fn er1cs_commit<
     let C_metadata = &C.get_metadata(sparsity);
     let start_time = Instant::now();
 
-    let E_commit = <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::commit(pp, &E).unwrap();
+    let E_commit =
+        <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::commit(pp2, &E).unwrap();
     transcript.write_commitment(E_commit.as_ref()).unwrap();
 
-    let W_commit = <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::commit(pp, &W).unwrap();
+    let W_commit =
+        <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::commit(pp2, &W).unwrap();
     transcript.write_commitment(&W_commit.as_ref()).unwrap();
 
     let (
@@ -243,7 +251,7 @@ pub fn er1cs_commit<
         A_read_ts_col_commit,
         A_final_ts_row_commit,
         A_final_ts_col_commit,
-    ) = A_metadata.commit::<H, S>(pp, transcript);
+    ) = A_metadata.commit::<H, S>(pp1, pp2, transcript);
     let (
         B_row_commit,
         B_col_commit,
@@ -252,7 +260,7 @@ pub fn er1cs_commit<
         B_read_ts_col_commit,
         B_final_ts_row_commit,
         B_final_ts_col_commit,
-    ) = B_metadata.commit::<H, S>(pp, transcript);
+    ) = B_metadata.commit::<H, S>(pp1, pp2, transcript);
     let (
         C_row_commit,
         C_col_commit,
@@ -261,7 +269,7 @@ pub fn er1cs_commit<
         C_read_ts_col_commit,
         C_final_ts_row_commit,
         C_final_ts_col_commit,
-    ) = C_metadata.commit::<H, S>(pp, transcript);
+    ) = C_metadata.commit::<H, S>(pp1, pp2, transcript);
     let commit1 = vec![
         A_row_commit,
         B_row_commit,

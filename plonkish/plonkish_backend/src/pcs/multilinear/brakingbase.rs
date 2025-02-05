@@ -1246,8 +1246,6 @@ where
         p_p_prime_rp_x0.append(&mut point_clone[(x_0.len().ilog2() as usize)..].to_vec());
         let p_p_prime_rp_x_eval = evaluate_poly(&p_p_prime, &p_p_prime_rp_x0);
 
-        println!("combined_eval on prover side = {:?}", p_p_prime_rp_x_eval);
-
         transcript.write_field_element(&p_p_prime_rp_u_eval);
         //Append final_ts_row and fianl_ts_row
         let final_ts_row_len = final_ts_row.len(); // can be removed
@@ -1810,9 +1808,6 @@ where
 
         let num_polys = comms.len();
         let comm_combiners = transcript.squeeze_challenges(num_polys);
-        println!("comms len = {}", comms.len());
-        println!("evals len = {}", evals.len());
-        println!("comm_combiners len = {}", comm_combiners.len());
         let p_p_prime_commit = transcript.read_commitment().unwrap();
 
         // Read all the queried columns and check their Merkle paths
@@ -2067,20 +2062,10 @@ where
             vec![F::ZERO; second_sum_check_random_points.len() - 1 - x_1.len().ilog2() as usize];
         p_p_prime_rp_x0.push(F::ZERO);
 
-        let mut combined_eval = F::ZERO;
-
-        println!("evals len = {}", evals.len());
-        println!("comm_combiners len = {}", comm_combiners.len());
-        // for i in 0..evals.len() {
-        //     combined_eval += comm_combiners[i] * evals[i].value;
-        // }
-        // println!("combined_evals on verifier side = {:?}", combined_eval);
-
         let combined_eval = evals
             .into_iter()
             .zip(comm_combiners)
             .fold(F::ZERO, |acc, (x, y)| acc + x.value * y);
-        println!("combined_evals on verifier side = {:?}", combined_eval);
 
         let mut point_clone = point.to_vec();
         p_p_prime_rp_x0.append(&mut point_clone[(x_0.len().ilog2() as usize)..].to_vec());

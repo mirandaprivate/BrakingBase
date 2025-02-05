@@ -158,7 +158,8 @@ impl<F: PrimeField + Serialize + DeserializeOwned> SparseMetaData<F> {
     }
     pub fn commit<H: Hash, S: BrakingbaseSpec>(
         &self,
-        pp: &BrakingbaseProverParams<F, H>,
+        pp1: &BrakingbaseProverParams<F, H>,
+        pp2: &BrakingbaseProverParams<F, H>,
         transcript: &mut impl TranscriptWrite<
             <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::CommitmentChunk,
             F,
@@ -173,19 +174,22 @@ impl<F: PrimeField + Serialize + DeserializeOwned> SparseMetaData<F> {
         crate::pcs::multilinear::brakingbase::BrakingbaseCommitment<F, H>,
     ) {
         let row_commit =
-            <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::commit(pp, &self.row).unwrap();
+            <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::commit(pp1, &self.row)
+                .unwrap();
         transcript.write_commitment(row_commit.as_ref()).unwrap();
 
         let col_commit =
-            <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::commit(pp, &self.col).unwrap();
+            <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::commit(pp1, &self.col)
+                .unwrap();
         transcript.write_commitment(col_commit.as_ref()).unwrap();
 
         let val_commit =
-            <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::commit(pp, &self.val).unwrap();
+            <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::commit(pp1, &self.val)
+                .unwrap();
         transcript.write_commitment(val_commit.as_ref()).unwrap();
 
         let read_ts_row_commit = <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::commit(
-            pp,
+            pp1,
             &self.timestamps.read_ts_row,
         )
         .unwrap();
@@ -194,7 +198,7 @@ impl<F: PrimeField + Serialize + DeserializeOwned> SparseMetaData<F> {
             .unwrap();
 
         let read_ts_col_commit = <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::commit(
-            pp,
+            pp1,
             &self.timestamps.read_ts_col,
         )
         .unwrap();
@@ -203,7 +207,7 @@ impl<F: PrimeField + Serialize + DeserializeOwned> SparseMetaData<F> {
             .unwrap();
 
         let final_ts_row_commit = <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::commit(
-            pp,
+            pp2,
             &self.timestamps.final_ts_row,
         )
         .unwrap();
@@ -212,7 +216,7 @@ impl<F: PrimeField + Serialize + DeserializeOwned> SparseMetaData<F> {
             .unwrap();
 
         let final_ts_col_commit = <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::commit(
-            pp,
+            pp2,
             &self.timestamps.final_ts_col,
         )
         .unwrap();

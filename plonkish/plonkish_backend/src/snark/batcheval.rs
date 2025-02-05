@@ -31,7 +31,8 @@ pub fn batch_eval_proof<F, H, S>(
     rx_basis_evals: Vec<F>,
     E: &MultilinearPolynomial<F>,
     W: &MultilinearPolynomial<F>,
-    pp: &BrakingbaseProverParams<F, H>,
+    pp1: &BrakingbaseProverParams<F, H>,
+    pp2: &BrakingbaseProverParams<F, H>,
     commit1: &Vec<BrakingbaseCommitment<F, H>>,
     commit2: &Vec<BrakingbaseCommitment<F, H>>,
     transcript: &mut impl TranscriptWrite<
@@ -84,7 +85,7 @@ pub fn batch_eval_proof<F, H, S>(
         .iter()
         .map(|rx_poly| {
             <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::commit(
-                pp,
+                pp1,
                 &MultilinearPolynomial::new(rx_poly.to_vec()),
             )
             .unwrap()
@@ -99,7 +100,7 @@ pub fn batch_eval_proof<F, H, S>(
         .iter()
         .map(|ry_poly| {
             <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::commit(
-                pp,
+                pp1,
                 &MultilinearPolynomial::new(ry_poly.to_vec()),
             )
             .unwrap()
@@ -109,7 +110,12 @@ pub fn batch_eval_proof<F, H, S>(
     e_ry_commits.iter().for_each(|commit| {
         transcript.write_commitment(commit.as_ref()).unwrap();
     });
-    let commit1: Vec<_> = commit1.iter().chain(e_rx_commits.iter()).chain(e_ry_commits.iter()).cloned().collect();
+    let commit1: Vec<_> = commit1
+        .iter()
+        .chain(e_rx_commits.iter())
+        .chain(e_ry_commits.iter())
+        .cloned()
+        .collect();
 
     let val: Vec<Vec<F>> = sparse_metadata
         .iter()
@@ -490,18 +496,11 @@ pub fn batch_eval_proof<F, H, S>(
         .cloned()
         .collect();
 
-    let evals = chain![
-        (0..evals1.len()).map(|point| (0, point)),
-        (0..evals1.len()).map(|poly| (poly, 0)),
-    ]
-    .unique()
-    .collect_vec();
-    let evals1 = evals
+    let evals1 = evals1
         .iter()
-        .copied()
-        .map(|(poly, point)| Evaluation::new(poly, point, evals1[poly]))
+        .map(|eval| Evaluation::new(0, 0, *eval))
         .collect_vec();
-    
+
     let evals2: Vec<F> = final_ts_for_rows_evals
         .iter()
         .chain(final_ts_for_cols_evals.iter())
@@ -509,20 +508,14 @@ pub fn batch_eval_proof<F, H, S>(
         .chain([W_eval].iter())
         .cloned()
         .collect();
-    let evals = chain![
-        (0..evals2.len()).map(|point| (0, point)),
-        (0..evals2.len()).map(|poly| (poly, 0)),
-    ]
-    .unique()
-    .collect_vec();
-    let evals2 = evals
+
+    let evals2 = evals2
         .iter()
-        .copied()
-        .map(|(poly, point)| Evaluation::new(poly, point, evals2[poly]))
+        .map(|eval| Evaluation::new(0, 0, *eval))
         .collect_vec();
 
     <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::batch_open(
-        pp,
+        pp1,
         None,
         &commit1,
         &[batch_sum_check_rp.clone()].to_vec(),
@@ -531,7 +524,7 @@ pub fn batch_eval_proof<F, H, S>(
     )
     .unwrap();
     <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::batch_open(
-        pp,
+        pp2,
         None,
         commit2,
         &[batch_sum_check_rp[batch_sum_check_rp.len() - num_var_witness..].to_vec()].to_vec(),
