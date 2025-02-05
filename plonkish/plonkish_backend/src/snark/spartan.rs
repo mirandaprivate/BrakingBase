@@ -389,6 +389,47 @@ pub fn verify_sat<F, H, S>(
         bt_sc_rp,
     ) = batch_sum_check_verifier::<F, H, S>(batch_r, initial_claim, transcript, &batch_sc_rc);
 
+    // let evals1: Vec<F> = rows_evals
+    //     .iter()
+    //     .chain(cols_evals.iter())
+    //     .chain(val_evals.iter())
+    //     .chain(read_ts_rows_evals.iter())
+    //     .chain(read_ts_cols_evals.iter())
+    //     .chain(e_rx_evals.iter())
+    //     .chain(e_ry_evals.iter())
+    //     .cloned()
+    //     .collect();
+
+    // let evals = chain![
+    //     (0..evals1.len()).map(|point| (0, point)),
+    //     (0..evals1.len()).map(|poly| (poly, 0)),
+    // ]
+    // .unique()
+    // .collect_vec();
+    // let evals1 = evals
+    //     .iter()
+    //     .copied()
+    //     .map(|(poly, point)| Evaluation::new(poly, point, evals1[poly]))
+    //     .collect_vec();
+    // let evals2: Vec<F> = final_ts_rows_evals
+    //     .iter()
+    //     .chain(final_ts_cols_evals.iter())
+    //     .chain([E_eval].iter())
+    //     .chain([W_eval].iter())
+    //     .cloned()
+    //     .collect();
+    // let evals = chain![
+    //     (0..evals2.len()).map(|point| (0, point)),
+    //     (0..evals2.len()).map(|poly| (poly, 0)),
+    // ]
+    // .unique()
+    // .collect_vec();
+    // let evals2 = evals
+    //     .iter()
+    //     .copied()
+    //     .map(|(poly, point)| Evaluation::new(poly, point, evals2[poly]))
+    //     .collect_vec();
+
     let evals1: Vec<F> = rows_evals
         .iter()
         .chain(cols_evals.iter())
@@ -400,17 +441,11 @@ pub fn verify_sat<F, H, S>(
         .cloned()
         .collect();
 
-    let evals = chain![
-        (0..evals1.len()).map(|point| (0, point)),
-        (0..evals1.len()).map(|poly| (poly, 0)),
-    ]
-    .unique()
-    .collect_vec();
-    let evals1 = evals
+    let evals1 = evals1
         .iter()
-        .copied()
-        .map(|(poly, point)| Evaluation::new(poly, point, evals1[poly]))
+        .map(|eval| Evaluation::new(0, 0, *eval))
         .collect_vec();
+
     let evals2: Vec<F> = final_ts_rows_evals
         .iter()
         .chain(final_ts_cols_evals.iter())
@@ -418,16 +453,10 @@ pub fn verify_sat<F, H, S>(
         .chain([W_eval].iter())
         .cloned()
         .collect();
-    let evals = chain![
-        (0..evals2.len()).map(|point| (0, point)),
-        (0..evals2.len()).map(|poly| (poly, 0)),
-    ]
-    .unique()
-    .collect_vec();
-    let evals2 = evals
+
+    let evals2 = evals2
         .iter()
-        .copied()
-        .map(|(poly, point)| Evaluation::new(poly, point, evals2[poly]))
+        .map(|eval| Evaluation::new(0, 0, *eval))
         .collect_vec();
 
     <Brakingbase<F, H, S> as PolynomialCommitmentScheme<F>>::batch_verify(

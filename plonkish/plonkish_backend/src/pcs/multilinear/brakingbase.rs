@@ -694,9 +694,9 @@ where
 
         let mut point_clone = point.to_vec();
         p_p_prime_rp_x0.append(&mut point_clone[(x_0.len().ilog2() as usize)..].to_vec());
-        let p_p_prime_rp_x0_eval = evaluate_poly(&p_p_prime, &p_p_prime_rp_x0);
+        // let p_p_prime_rp_x0_eval = evaluate_poly(&p_p_prime, &p_p_prime_rp_x0);
 
-        transcript.write_field_elements(&[p_p_prime_rp_u_eval, p_p_prime_rp_x0_eval]);
+        transcript.write_field_element(&p_p_prime_rp_u_eval);
         //Append final_ts_row and fianl_ts_row
         let final_ts_row_len = final_ts_row.len(); // can be removed
         let mut final_ts_row_col = [final_ts_row, final_ts_col].concat();
@@ -1244,9 +1244,11 @@ where
 
         let mut point_clone = point.to_vec();
         p_p_prime_rp_x0.append(&mut point_clone[(x_0.len().ilog2() as usize)..].to_vec());
-        let p_p_prime_rp_x0_eval = evaluate_poly(&p_p_prime, &p_p_prime_rp_x0);
+        let p_p_prime_rp_x_eval = evaluate_poly(&p_p_prime, &p_p_prime_rp_x0);
 
-        transcript.write_field_elements(&[p_p_prime_rp_u_eval, p_p_prime_rp_x0_eval]);
+        println!("combined_eval on prover side = {:?}", p_p_prime_rp_x_eval);
+
+        transcript.write_field_element(&p_p_prime_rp_u_eval);
         //Append final_ts_row and fianl_ts_row
         let final_ts_row_len = final_ts_row.len(); // can be removed
         let mut final_ts_row_col = [final_ts_row, final_ts_col].concat();
@@ -1727,7 +1729,7 @@ where
         let p_p_prime_eval_fsrp = (F::ONE - first_sum_check_random_points[0]) * p_eval
             + first_sum_check_random_points[0] * p_prime_eval;
         let p_p_prime_rp_u_eval = transcript.read_field_element().unwrap();
-        let p_p_prime_rp_x0_eval = transcript.read_field_element().unwrap();
+        // let p_p_prime_rp_x0_eval = transcript.read_field_element().unwrap();
 
         // Need to sample an extra random point to combine values here
         let r = transcript.squeeze_challenge();
@@ -1748,7 +1750,7 @@ where
         let mut initial_claimed_evals = [
             p_p_prime_eval_fsrp,
             p_p_prime_rp_u_eval,
-            p_p_prime_rp_x0_eval,
+            *eval,
             h_val_eval,
             h_erow_eval,
             h_ecol_eval,
@@ -1807,7 +1809,10 @@ where
         let (mut x_0, mut x_1) = point_to_tensor_for_commit(num_rows, point);
 
         let num_polys = comms.len();
-        let combiners = transcript.squeeze_challenges(num_polys);
+        let comm_combiners = transcript.squeeze_challenges(num_polys);
+        println!("comms len = {}", comms.len());
+        println!("evals len = {}", evals.len());
+        println!("comm_combiners len = {}", comm_combiners.len());
         let p_p_prime_commit = transcript.read_commitment().unwrap();
 
         // Read all the queried columns and check their Merkle paths
@@ -1818,7 +1823,7 @@ where
         let mut paths = Vec::new();
         for i in 0..vp.num_brakedown_queries {
             col_idx[i] = squeeze_challenge_idx(transcript, codeword_len);
-            
+
             (0..num_polys).for_each(|k| {
                 let col = transcript
                     .read_field_elements(vp.brakedown_num_rows)
@@ -1886,7 +1891,9 @@ where
                         .collect::<Vec<F>>()
                         .iter()
                         .enumerate()
-                        .fold(F::ZERO, |acc, (idx, val_i)| acc + *val_i * combiners[idx]);
+                        .fold(F::ZERO, |acc, (idx, val_i)| {
+                            acc + *val_i * comm_combiners[idx]
+                        });
 
                     acc + sum_check_val_i * challenges[j]
                 },
@@ -2060,13 +2067,27 @@ where
             vec![F::ZERO; second_sum_check_random_points.len() - 1 - x_1.len().ilog2() as usize];
         p_p_prime_rp_x0.push(F::ZERO);
 
+        let mut combined_eval = F::ZERO;
+
+        println!("evals len = {}", evals.len());
+        println!("comm_combiners len = {}", comm_combiners.len());
+        // for i in 0..evals.len() {
+        //     combined_eval += comm_combiners[i] * evals[i].value;
+        // }
+        // println!("combined_evals on verifier side = {:?}", combined_eval);
+
+        let combined_eval = evals
+            .into_iter()
+            .zip(comm_combiners)
+            .fold(F::ZERO, |acc, (x, y)| acc + x.value * y);
+        println!("combined_evals on verifier side = {:?}", combined_eval);
+
         let mut point_clone = point.to_vec();
         p_p_prime_rp_x0.append(&mut point_clone[(x_0.len().ilog2() as usize)..].to_vec());
 
         let p_p_prime_eval_fsrp = (F::ONE - first_sum_check_random_points[0]) * p_eval
             + first_sum_check_random_points[0] * p_prime_eval;
         let p_p_prime_rp_u_eval = transcript.read_field_element().unwrap();
-        let p_p_prime_rp_x0_eval = transcript.read_field_element().unwrap();
 
         // Need to sample an extra random point to combine values here
         let r = transcript.squeeze_challenge();
@@ -2087,7 +2108,7 @@ where
         let mut initial_claimed_evals = [
             p_p_prime_eval_fsrp,
             p_p_prime_rp_u_eval,
-            p_p_prime_rp_x0_eval,
+            combined_eval,
             h_val_eval,
             h_erow_eval,
             h_ecol_eval,
