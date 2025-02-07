@@ -54,87 +54,97 @@ impl BasefoldExtParams for Five {
 type CommitmentScheme = Brakingbase<GoldilocksMont, Blake2s256, Five>;
 #[test]
 pub fn er1cs_test() {
-    let num_const = 1 << 11;
-    let num_pi_inputs: usize = 8;
-    let num_var = num_const - 1;
-    let sparsity: usize = 2;
+    for var in 11..13 {
+        let num_const = 1 << var;
+        let num_pi_inputs: usize = 8;
+        let num_var = num_const - 1;
+        let sparsity: usize = 2;
+        println!("var is {:?}", var);
 
-    let mut rng = OsRng;
-    assert_eq!(
-        sparsity.is_power_of_two(),
-        true,
-        "sparsity must be a power of 2"
-    );
-    assert_eq!(
-        num_pi_inputs.is_power_of_two(),
-        true,
-        "num_pi_inputs must be a power of 2"
-    );
+        let mut rng = OsRng;
+        assert_eq!(
+            sparsity.is_power_of_two(),
+            true,
+            "sparsity must be a power of 2"
+        );
+        assert_eq!(
+            num_pi_inputs.is_power_of_two(),
+            true,
+            "num_pi_inputs must be a power of 2"
+        );
 
-    let param1 = CommitmentScheme::setup(num_const * sparsity, 1, &mut rng).unwrap();
-    let param2 = CommitmentScheme::setup(num_const, 1, &mut rng).unwrap();
-    let (pp1, vp1) = CommitmentScheme::trim(&param1, num_const * sparsity, 1).unwrap();
-    let (pp2, vp2) = CommitmentScheme::trim(&param2, num_const, 1).unwrap();
-    let depth = (num_const as u32 * sparsity as u32).trailing_zeros();
-    let (A, B, C, z, E, W, u, PI) = construct_matrices::<GoldilocksMont>(
-        sparsity as usize,
-        num_const,
-        num_var as usize,
-        num_pi_inputs,
-    );
+        let param1 = CommitmentScheme::setup(num_const * sparsity, 1, &mut rng).unwrap();
+        let param2 = CommitmentScheme::setup(num_const, 1, &mut rng).unwrap();
+        let (pp1, vp1) = CommitmentScheme::trim(&param1, num_const * sparsity, 1).unwrap();
+        let (pp2, vp2) = CommitmentScheme::trim(&param2, num_const, 1).unwrap();
+        let depth = (num_const as u32 * sparsity as u32).trailing_zeros();
+        let (A, B, C, z, E, W, u, PI) = construct_matrices::<GoldilocksMont>(
+            sparsity as usize,
+            num_const,
+            num_var as usize,
+            num_pi_inputs,
+        );
 
-    let mut transcript = Blake2s256Transcript::new(());
+        let mut transcript = Blake2s256Transcript::new(());
+        let start_time = Instant::now();
+        let (er1cs_metadata, commit1, commit2) = er1cs_commit::<GoldilocksMont, CommitmentScheme>(
+            &A,
+            &B,
+            &C,
+            &E,
+            &W,
+            &pp1,
+            &pp2,
+            sparsity,
+            &mut transcript,
+        );
+        let commit_size = transcript.clone().into_proof();
+        let size = commit_size.len() as f64 / 1024.0;
+        println!("Commit size {} KB", size);
 
-    let (er1cs_metadata, commit1, commit2) = er1cs_commit::<GoldilocksMont, CommitmentScheme>(
-        &A,
-        &B,
-        &C,
-        &E,
-        &W,
-        &pp1,
-        &pp2,
-        sparsity,
-        &mut transcript,
-    );
+        println!("Commit time {:?}", start_time.elapsed());
 
-    let time = Instant::now();
-    prove_sat::<GoldilocksMont, CommitmentScheme>(
-        &A,
-        &B,
-        &C,
-        &u,
-        &MultilinearPolynomial::new(z),
-        &E,
-        &W,
-        er1cs_metadata,
-        &pp1,
-        &pp2,
-        &commit1,
-        &commit2,
-        &mut transcript,
-    );
+        let time = Instant::now();
+        prove_sat::<GoldilocksMont, CommitmentScheme>(
+            &A,
+            &B,
+            &C,
+            &u,
+            &MultilinearPolynomial::new(z),
+            &E,
+            &W,
+            er1cs_metadata,
+            &pp1,
+            &pp2,
+            &commit1,
+            &commit2,
+            &mut transcript,
+        );
 
-    let proof = transcript.into_proof();
-    println!("Time to generate er1cs proof is {:?}", time.elapsed());
+        println!("Proof time {:?}", time.elapsed());
+        let proof = transcript.into_proof();
 
-    let size = proof.len() as f64 / 1024.0;
-    println!("Proof size {}KB", size);
+        let size = proof.len() as f64 / 1024.0;
+        println!("Proof size {} KB", size);
 
-    let mut transcript = Blake2s256Transcript::from_proof((), proof.as_slice());
+        let mut transcript = Blake2s256Transcript::from_proof((), proof.as_slice());
 
-    let pi_indices: Vec<usize> = (0..1 << 5).collect();
+        let pi_indices: Vec<usize> = (0..1 << 5).collect();
 
-    verify_sat::<GoldilocksMont, CommitmentScheme>(
-        num_const,
-        sparsity,
-        &vp1,
-        &vp2,
-        u,
-        MultilinearPolynomial::new(PI),
-        pi_indices,
-        &mut transcript,
-    );
-    println!("Time to verify er1cs proof is {:?}", time.elapsed());
+        let time = Instant::now();
+        verify_sat::<GoldilocksMont, CommitmentScheme>(
+            num_const,
+            sparsity,
+            &vp1,
+            &vp2,
+            u,
+            MultilinearPolynomial::new(PI),
+            pi_indices,
+            &mut transcript,
+        );
+        println!("Verifier time {:?}", time.elapsed());
+        println!("--------------------------");
+    }
 }
 #[allow(unused)]
 pub fn construct_matrices<F: PrimeField + Serialize + DeserializeOwned>(
@@ -226,7 +236,6 @@ where
     let A_metadata = &A.get_metadata(sparsity);
     let B_metadata = &B.get_metadata(sparsity);
     let C_metadata = &C.get_metadata(sparsity);
-    let start_time = Instant::now();
 
     let E_commit = Pcs::commit_and_write(pp2, &E, transcript).unwrap();
 
@@ -286,7 +295,6 @@ where
         E_commit,
         W_commit,
     ];
-    println!("er1cs commit time {:?}", start_time.elapsed());
     (
         eR1CSmetadata::new(A_metadata.clone(), B_metadata.clone(), C_metadata.clone()),
         commit1,

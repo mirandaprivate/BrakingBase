@@ -103,7 +103,7 @@ pub type Blake2sTranscript<S> = FiatShamirTranscript<Blake2s, S>;
 
 pub type Blake2s256Transcript<S> = FiatShamirTranscript<Blake2s256, S>;
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct FiatShamirTranscript<H, S> {
     state: H,
     stream: S,
