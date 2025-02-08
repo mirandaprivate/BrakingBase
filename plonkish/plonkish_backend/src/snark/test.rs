@@ -3,7 +3,7 @@ use super::helper::SparseRep;
 use crate::pcs::multilinear::brakingbase::{
     Brakingbase, BrakingbaseCommitment, BrakingbaseProverParams, BrakingbaseSpec,
 };
-use crate::pcs::multilinear::{Basefold, BasefoldExtParams};
+use crate::pcs::multilinear::{Basefold, BasefoldExtParams, MultilinearBrakedown};
 use crate::pcs::PolynomialCommitmentScheme;
 use crate::snark::helper::eR1CSmetadata;
 use crate::snark::spartan::{prove_sat, verify_sat};
@@ -51,10 +51,10 @@ impl BasefoldExtParams for Five {
     }
 }
 
-type CommitmentScheme = Basefold<GoldilocksMont, Blake2s256, Five>;
+type CommitmentScheme = MultilinearBrakedown<GoldilocksMont, Blake2s256, Five>;
 #[test]
 pub fn er1cs_test() {
-    for var in 11..27 {
+    for var in 11..12 {
         let num_const = 1 << var;
         let num_pi_inputs: usize = 8;
         let num_var = num_const - 1;

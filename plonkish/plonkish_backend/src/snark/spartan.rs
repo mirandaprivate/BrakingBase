@@ -391,7 +391,8 @@ pub fn verify_sat<F, Pcs>(
 
     let evals1 = evals1
         .iter()
-        .map(|eval| Evaluation::new(0, 0, *eval))
+        .enumerate()
+        .map(|(poly, eval)| Evaluation::new(poly, 0, *eval))
         .collect_vec();
 
     let evals2: Vec<F> = final_ts_rows_evals
@@ -404,9 +405,10 @@ pub fn verify_sat<F, Pcs>(
 
     let evals2 = evals2
         .iter()
-        .map(|eval| Evaluation::new(0, 0, *eval))
+        .enumerate()
+        .map(|(poly, eval)| Evaluation::new(poly, 0, *eval))
         .collect_vec();
-
+    
     Pcs::batch_verify(
         vp1,
         &commit1,

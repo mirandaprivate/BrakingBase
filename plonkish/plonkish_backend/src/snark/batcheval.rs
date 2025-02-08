@@ -478,7 +478,8 @@ pub fn batch_eval_proof<F, Pcs>(
 
     let evals1 = evals1
         .iter()
-        .map(|eval| Evaluation::new(0, 0, *eval))
+        .enumerate()
+        .map(|(poly, eval)| Evaluation::new(poly, 0, *eval))
         .collect_vec();
 
     let evals2: Vec<F> = final_ts_for_rows_evals
@@ -491,8 +492,10 @@ pub fn batch_eval_proof<F, Pcs>(
 
     let evals2 = evals2
         .iter()
-        .map(|eval| Evaluation::new(0, 0, *eval))
+        .enumerate()
+        .map(|(poly, eval)| Evaluation::new(poly, 0, *eval))
         .collect_vec();
+
     let poly: Vec<_> = rows
         .iter()
         .chain(cols.iter())
@@ -503,6 +506,7 @@ pub fn batch_eval_proof<F, Pcs>(
         .chain(e_ry.iter())
         .map(|v| Pcs::Polynomial::new(v.to_vec()))
         .collect();
+
     Pcs::batch_open(
         pp1,
         &poly,
@@ -512,6 +516,7 @@ pub fn batch_eval_proof<F, Pcs>(
         transcript,
     )
     .unwrap();
+
     let poly: Vec<_> = final_ts_for_rows
         .iter()
         .chain(final_ts_for_cols.iter())
