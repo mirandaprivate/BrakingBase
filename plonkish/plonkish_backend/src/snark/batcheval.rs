@@ -493,21 +493,37 @@ pub fn batch_eval_proof<F, Pcs>(
         .iter()
         .map(|eval| Evaluation::new(0, 0, *eval))
         .collect_vec();
-
+    let poly: Vec<_> = rows
+        .iter()
+        .chain(cols.iter())
+        .chain(val.iter())
+        .chain(read_ts_for_rows.iter())
+        .chain(read_ts_for_cols.iter())
+        .chain(e_rx.iter())
+        .chain(e_ry.iter())
+        .map(|v| Pcs::Polynomial::new(v.to_vec()))
+        .collect();
     Pcs::batch_open(
         pp1,
-        None,
+        &poly,
         &commit1,
         &[batch_sum_check_rp.clone()].to_vec(),
         &evals1,
         transcript,
     )
     .unwrap();
+    let poly: Vec<_> = final_ts_for_rows
+        .iter()
+        .chain(final_ts_for_cols.iter())
+        .chain([E.clone().into_evals()].iter())
+        .chain([W.clone().into_evals()].iter())
+        .map(|v| Pcs::Polynomial::new(v.to_vec()))
+        .collect();
     Pcs::batch_open(
         pp2,
-        None,
+        &poly,
         commit2,
-        &[batch_sum_check_rp[batch_sum_check_rp.len() - num_var_witness..].to_vec()].to_vec(),
+        &[batch_sum_check_rp[batch_sum_check_rp.len() - num_var_witness..].to_vec()],
         &evals2,
         transcript,
     )

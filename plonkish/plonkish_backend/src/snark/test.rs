@@ -51,10 +51,10 @@ impl BasefoldExtParams for Five {
     }
 }
 
-type CommitmentScheme = Brakingbase<GoldilocksMont, Blake2s256, Five>;
+type CommitmentScheme = Basefold<GoldilocksMont, Blake2s256, Five>;
 #[test]
 pub fn er1cs_test() {
-    for var in 11..13 {
+    for var in 11..27 {
         let num_const = 1 << var;
         let num_pi_inputs: usize = 8;
         let num_var = num_const - 1;
