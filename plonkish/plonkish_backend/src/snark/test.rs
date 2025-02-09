@@ -8,7 +8,7 @@ use crate::pcs::PolynomialCommitmentScheme;
 use crate::snark::helper::eR1CSmetadata;
 use crate::snark::spartan::{prove_sat, verify_sat};
 use crate::util::code::BrakedownSpec;
-use crate::util::goldilocksMont::GoldilocksMont;
+use crate::util::ff_255::ft127::{self, Ft127};
 use crate::util::hash::Hash;
 use crate::util::transcript::{Blake2s256Transcript, InMemoryTranscript};
 use crate::{
@@ -50,11 +50,11 @@ impl BasefoldExtParams for Five {
         false // Important. Else basefold commit encodes coefficients, not evaluations.
     }
 }
-
-type CommitmentScheme = MultilinearBrakedown<GoldilocksMont, Blake2s256, Five>;
+type Field = Ft127;
+type CommitmentScheme = Brakingbase<Field, Blake2s256, Five>;
 #[test]
 pub fn er1cs_test() {
-    for var in 11..12 {
+    for var in 15..24 {
         let num_const = 1 << var;
         let num_pi_inputs: usize = 8;
         let num_var = num_const - 1;
@@ -78,7 +78,7 @@ pub fn er1cs_test() {
         let (pp1, vp1) = CommitmentScheme::trim(&param1, num_const * sparsity, 1).unwrap();
         let (pp2, vp2) = CommitmentScheme::trim(&param2, num_const, 1).unwrap();
         let depth = (num_const as u32 * sparsity as u32).trailing_zeros();
-        let (A, B, C, z, E, W, u, PI) = construct_matrices::<GoldilocksMont>(
+        let (A, B, C, z, E, W, u, PI) = construct_matrices::<Field>(
             sparsity as usize,
             num_const,
             num_var as usize,
@@ -87,7 +87,7 @@ pub fn er1cs_test() {
 
         let mut transcript = Blake2s256Transcript::new(());
         let start_time = Instant::now();
-        let (er1cs_metadata, commit1, commit2) = er1cs_commit::<GoldilocksMont, CommitmentScheme>(
+        let (er1cs_metadata, commit1, commit2) = er1cs_commit::<Field, CommitmentScheme>(
             &A,
             &B,
             &C,
@@ -105,7 +105,7 @@ pub fn er1cs_test() {
         println!("Commit time {:?}", start_time.elapsed());
 
         let time = Instant::now();
-        prove_sat::<GoldilocksMont, CommitmentScheme>(
+        prove_sat::<Field, CommitmentScheme>(
             &A,
             &B,
             &C,
@@ -132,7 +132,7 @@ pub fn er1cs_test() {
         let pi_indices: Vec<usize> = (0..1 << 5).collect();
 
         let time = Instant::now();
-        verify_sat::<GoldilocksMont, CommitmentScheme>(
+        verify_sat::<Field, CommitmentScheme>(
             num_const,
             sparsity,
             &vp1,
