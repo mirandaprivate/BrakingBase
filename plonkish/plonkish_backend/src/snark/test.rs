@@ -51,7 +51,7 @@ impl BasefoldExtParams for Five {
     }
 }
 type Field = Ft127;
-type CommitmentScheme = Brakingbase<Field, Blake2s256, Five>;
+type CommitmentScheme = Basefold<Field, Blake2s256, Five>;
 #[test]
 pub fn er1cs_test() {
     for var in 15..24 {

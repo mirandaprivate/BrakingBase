@@ -304,12 +304,15 @@ where
         //	env::set_var(key, "8");
         let polys = polys.into_iter().collect_vec();
         let comms = comms.into_iter().collect_vec();
+        let mut point = points[0].clone();
+        point.reverse();
+
         for eval in evals {
             Self::open(
                 pp,
                 polys[eval.poly()],
                 comms[eval.poly()],
-                &points[eval.point()],
+                &point,
                 eval.value(),
                 transcript,
             )?;
@@ -423,14 +426,10 @@ where
         transcript: &mut impl TranscriptRead<Self::CommitmentChunk, F>,
     ) -> Result<(), Error> {
         let comms = comms.into_iter().collect_vec();
+        let mut point = points[0].clone();
+        point.reverse();
         for eval in evals {
-            Self::verify(
-                vp,
-                comms[eval.poly()],
-                &points[eval.point()],
-                eval.value(),
-                transcript,
-            )?;
+            Self::verify(vp, comms[eval.poly()], &point, eval.value(), transcript)?;
         }
         Ok(())
     }
