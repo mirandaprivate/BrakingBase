@@ -3185,8 +3185,8 @@ mod test {
 
     impl BrakingbaseSpec for Five {}
 
-    type Pcs = Brakingbase<GoldilocksMont, Blake2s256, Five>;
-    type Pcs_basefold = Basefold<GoldilocksMont, Blake2s256, Five>;
+    type Pcs = Brakingbase<Mersenne127, Blake2s256, Five>;
+    type Pcs_basefold = Basefold<Mersenne127, Blake2s256, Five>;
 
     #[test]
     fn test_merkle_paths() {
