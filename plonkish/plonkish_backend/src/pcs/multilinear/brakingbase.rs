@@ -244,13 +244,9 @@ where
         read_ts_row.resize(basefold_poly_size, F::ZERO);
         read_ts_col.resize(basefold_poly_size, F::ZERO);
 
-        let mut final_ts_row_col = Vec::<F>::new();
-
         assert_eq!(final_ts_row.len(), final_ts_col.len());
-        for i in 0..basefold_poly_size / (2 * final_ts_row.len()) {
-            final_ts_row_col.extend(final_ts_row.clone());
-            final_ts_row_col.extend(final_ts_col.clone());
-        }
+        let final_ts_row_col =
+            repeat_slice(&[final_ts_row, final_ts_col].concat(), basefold_poly_size);
         let mut polys = Vec::<Vec<F>>::with_capacity(6);
         polys.push(val);
         polys.push(row);
@@ -431,13 +427,8 @@ where
             });
 
         // Commiting to the message and (codeword - message) parts of combined_codeword
-        let mut p_p_prime: Vec<F> = Vec::new();
-
-        // The number of coefficients in H is pp.blow_up_factor * row_len.
-        for i in 0..pp.basefold_poly_size / (2 * row_len) {
-            p_p_prime.extend(&combined_codeword);
-            p_p_prime.extend(&vec![F::ZERO; 2 * row_len - codeword_len]);
-        }
+        let mut p_p_prime =
+            repeat_with_zero_padding(&combined_codeword, 2 * row_len, pp.basefold_poly_size);
 
         let p_p_prime_commit = Basefold::<F, H, S>::commit(
             &pp.basefold,
@@ -700,8 +691,7 @@ where
 
         transcript.write_field_element(&p_p_prime_rp_u_eval);
         //Append final_ts_row and fianl_ts_row
-        let final_ts_row_len = final_ts_row.len(); // can be removed
-        let mut final_ts_row_col = [final_ts_row, final_ts_col].concat();
+        let final_ts_row_col = [final_ts_row, final_ts_col].concat();
 
         // Need to sample an extra random point to combine values here
         let r = transcript.squeeze_challenge();
@@ -711,13 +701,7 @@ where
         final_ts_row_col_rp.push(r);
         final_ts_row_col_rp.extend(random_points1);
 
-        let mut extended_final_ts_row_col = final_ts_row_col.clone();
-
-        //TODO:- Run batch sum check without extending
-        for _ in 1..basefold_poly_size / (2 * final_ts_row_len) {
-            // denominator can be replaced by 4 * row_len
-            extended_final_ts_row_col.extend(final_ts_row_col.clone());
-        }
+        let mut extended_final_ts_row_col = repeat_slice(&final_ts_row_col, basefold_poly_size);
 
         // evaluations to be batched in total
         let batch_sum_check_random_combiner = transcript.squeeze_challenges(13);
@@ -965,20 +949,20 @@ where
 
         //TODO(Ashish): Optimize this part
         let mut linear_combined_codeword = vec![F::ZERO; codeword_len];
-        (0..num_polys).for_each(|k| {
-            for j in 0..codeword_len {
-                linear_combined_codeword[j] += combiners[k] * combined_codeword[k][j];
-            }
-        });
+        linear_combined_codeword
+            .par_iter_mut()
+            .enumerate()
+            .for_each(|(j, linear_combined)| {
+                for k in 0..num_polys {
+                    *linear_combined += combiners[k] * combined_codeword[k][j];
+                }
+            });
 
-        // Commiting to the message and (codeword - message) parts of combined_codeword
-        let mut p_p_prime: Vec<F> = Vec::new();
-
-        // The number of coefficients in H is pp.blow_up_factor * row_len.
-        for i in 0..pp.basefold_poly_size / (2 * row_len) {
-            p_p_prime.extend(&linear_combined_codeword);
-            p_p_prime.extend(&vec![F::ZERO; 2 * row_len - codeword_len]);
-        }
+        let mut p_p_prime = repeat_with_zero_padding(
+            &linear_combined_codeword,
+            2 * row_len,
+            pp.basefold_poly_size,
+        );
 
         let p_p_prime_commit = Basefold::<F, H, S>::commit(
             &pp.basefold,
@@ -1250,8 +1234,7 @@ where
 
         transcript.write_field_element(&p_p_prime_rp_u_eval);
         //Append final_ts_row and fianl_ts_row
-        let final_ts_row_len = final_ts_row.len(); // can be removed
-        let mut final_ts_row_col = [final_ts_row, final_ts_col].concat();
+        let final_ts_row_col = [final_ts_row, final_ts_col].concat();
 
         // Need to sample an extra random point to combine values here
         let r = transcript.squeeze_challenge();
@@ -1261,13 +1244,7 @@ where
         final_ts_row_col_rp.push(r);
         final_ts_row_col_rp.extend(random_points1);
 
-        let mut extended_final_ts_row_col = final_ts_row_col.clone();
-
-        //TODO:- Run batch sum check without extending
-        for _ in 1..basefold_poly_size / (2 * final_ts_row_len) {
-            // denominator can be replaced by 4 * row_len
-            extended_final_ts_row_col.extend(final_ts_row_col.clone());
-        }
+        let mut extended_final_ts_row_col = repeat_slice(&final_ts_row_col, basefold_poly_size);
 
         // evaluations to be batched in total
         let batch_sum_check_random_combiner = transcript.squeeze_challenges(13);
@@ -2477,16 +2454,55 @@ pub fn batch_sum_check_verifier<F: PrimeField + Serialize + DeserializeOwned>(
 }
 
 fn evaluate_H<F: PrimeField>(H: &ParityCheckMatrix<F>, u: &Vec<F>, size: usize) -> Vec<F> {
-    let mut H_at_u = vec![F::ZERO; size];
     let tensor_u = point_to_tensor(1, u).1;
-    (0..H.row.len()).for_each(|i| {
-        H_at_u[H.row[i]] += H.val[i] * tensor_u[H.col[i]];
-    });
-    H_at_u
+    (0..H.row.len())
+        .into_par_iter()
+        .fold(
+            || vec![F::ZERO; size],
+            |mut h_at_u, i| {
+                h_at_u[H.row[i]] += H.val[i] * tensor_u[H.col[i]];
+                h_at_u
+            },
+        )
+        .reduce(
+            || vec![F::ZERO; size],
+            |mut left, right| {
+                left.par_iter_mut()
+                    .zip(right.into_par_iter())
+                    .for_each(|(left, right)| *left += right);
+                left
+            },
+        )
 }
 
 fn compute_oracle_poly<F: PrimeField>(coeffs: &Vec<usize>, point: &Vec<F>) -> Vec<F> {
     coeffs.par_iter().map(|coeff| eq(*coeff, point)).collect()
+}
+
+fn repeat_with_zero_padding<F: PrimeField>(
+    prefix: &[F],
+    block_len: usize,
+    total_len: usize,
+) -> Vec<F> {
+    assert!(prefix.len() <= block_len);
+    assert_eq!(total_len % block_len, 0);
+
+    let mut repeated = vec![F::ZERO; total_len];
+    repeated.par_chunks_mut(block_len).for_each(|chunk| {
+        chunk[..prefix.len()].copy_from_slice(prefix);
+    });
+    repeated
+}
+
+fn repeat_slice<F: PrimeField>(pattern: &[F], total_len: usize) -> Vec<F> {
+    assert!(!pattern.is_empty());
+    assert_eq!(total_len % pattern.len(), 0);
+
+    let mut repeated = vec![F::ZERO; total_len];
+    repeated.par_chunks_mut(pattern.len()).for_each(|chunk| {
+        chunk.copy_from_slice(pattern);
+    });
+    repeated
 }
 
 //TODO:-  Can be made better. Too hacky.
@@ -3102,6 +3118,7 @@ mod test {
                 multilinear_evaluation_atoz, multilinear_evaluation_ztoa, one_level_eval_hc,
                 one_level_interp_hc, rand_chacha, Basefold, Type1Polynomial, Type2Polynomial,
             },*/
+            brakingbase_helper::evaluate_poly,
             test::{run_batch_commit_open_verify, run_commit_open_verify},
         },
         poly::{multilinear::MultilinearPolynomial, Polynomial},
@@ -3120,7 +3137,8 @@ mod test {
         rand_core::{RngCore, SeedableRng},
         ChaCha12Rng, ChaCha8Rng,
     };
-    use std::io;
+    use rand::rngs::OsRng;
+    use std::{io, time::Instant};
 
     //use crate::pcs::multilinear::basefold::Instant;
     use crate::pcs::multilinear::{basefold, Basefold, BasefoldExtParams};
@@ -3275,6 +3293,81 @@ mod test {
     #[test]
     fn brakingbase_commit_open_verify() {
         run_commit_open_verify::<_, Pcs, Blake2sTranscript<_>>();
+    }
+
+    #[test]
+    #[ignore]
+    fn experiment_brakingbase() {
+        let log_max_size = std::env::var("LOG_MAX_SIZE")
+            .expect("Please set LOG_MAX_SIZE, e.g. LOG_MAX_SIZE=24 cargo test ...")
+            .parse::<usize>()
+            .expect("LOG_MAX_SIZE must be a usize");
+        assert!(log_max_size >= 20, "LOG_MAX_SIZE must be at least 20");
+
+        println!("k,poly_size,commit_ms,prover_ms,proof_size_kb,verifier_ms");
+
+        for num_vars in (20..=log_max_size).step_by(2) {
+            let poly_size = 1 << num_vars;
+            eprintln!("starting k={num_vars}, poly_size={poly_size}");
+
+            let mut rng = OsRng;
+            let param = Pcs::setup(poly_size, 1, &mut rng).unwrap();
+            let (pp, vp) = Pcs::trim(&param, poly_size, 1).unwrap();
+            eprintln!("finished setup for k={num_vars}");
+
+            let (proof, commit_ms, prover_ms, proof_size_kb) = {
+                let mut transcript = Blake2sTranscript::new(());
+                let poly = MultilinearPolynomial::rand(num_vars, OsRng);
+
+                let now = Instant::now();
+                let comm = Pcs::commit_and_write(&pp, &poly, &mut transcript).unwrap();
+                let commit_time = now.elapsed();
+                eprintln!("finished commit for k={num_vars}");
+
+                let point = transcript.squeeze_challenges(num_vars);
+                let eval = evaluate_poly(&poly.evals().to_vec(), &point);
+                transcript.write_field_element(&eval).unwrap();
+
+                let now = Instant::now();
+                Pcs::open(&pp, &poly, &comm, &point, &eval, &mut transcript).unwrap();
+                let prover_time = now.elapsed();
+                eprintln!("finished prove for k={num_vars}");
+
+                let proof = transcript.into_proof();
+                let proof_size_kb = proof.len() as f64 / 1024.0;
+
+                (
+                    proof,
+                    commit_time.as_millis(),
+                    prover_time.as_millis(),
+                    proof_size_kb,
+                )
+            };
+
+            let now = Instant::now();
+            let result = {
+                let mut transcript = Blake2sTranscript::from_proof((), proof.as_slice());
+                Pcs::verify(
+                    &vp,
+                    &Pcs::read_commitment(&vp, &mut transcript).unwrap(),
+                    &transcript.squeeze_challenges(num_vars),
+                    &transcript.read_field_element().unwrap(),
+                    &mut transcript,
+                )
+            };
+            let verifier_time = now.elapsed();
+            assert_eq!(result, Ok(()));
+            eprintln!("finished verify for k={num_vars}");
+            println!(
+                "{},{},{},{},{},{}",
+                num_vars,
+                poly_size,
+                commit_ms,
+                prover_ms,
+                proof_size_kb,
+                verifier_time.as_millis()
+            );
+        }
     }
 
     // fn run_basefold_batch_open<T>() {
