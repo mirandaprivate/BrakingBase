@@ -3304,25 +3304,34 @@ mod test {
             .expect("LOG_MAX_SIZE must be a usize");
         assert!(log_max_size >= 20, "LOG_MAX_SIZE must be at least 20");
 
-        println!("k,poly_size,commit_ms,prover_ms,proof_size_kb,verifier_ms");
+        let rayon_num_threads = std::env::var("RAYON_NUM_THREADS")
+            .unwrap_or_else(|_| rayon::current_num_threads().to_string());
+        println!("RAYON_NUM_THREADS: {rayon_num_threads}");
+        println!("Running BrakingBase experiment sweep from 2^20 to 2^{log_max_size} step 2");
 
         for num_vars in (20..=log_max_size).step_by(2) {
             let poly_size = 1 << num_vars;
-            eprintln!("starting k={num_vars}, poly_size={poly_size}");
+            println!();
+            println!("*************************************************************************");
+            println!("========Running BrakingBase Experiment for witness size 2^{num_vars}========");
+            println!("*************************************************************************");
+            println!();
 
             let mut rng = OsRng;
+            let now = Instant::now();
             let param = Pcs::setup(poly_size, 1, &mut rng).unwrap();
+            let setup_time = now.elapsed();
+            let srs_size = bincode::serialized_size(&param).unwrap();
             let (pp, vp) = Pcs::trim(&param, poly_size, 1).unwrap();
-            eprintln!("finished setup for k={num_vars}");
 
-            let (proof, commit_ms, prover_ms, proof_size_kb) = {
+            let (proof, commitment_size, commit_time, prover_time) = {
                 let mut transcript = Blake2sTranscript::new(());
                 let poly = MultilinearPolynomial::rand(num_vars, OsRng);
 
                 let now = Instant::now();
                 let comm = Pcs::commit_and_write(&pp, &poly, &mut transcript).unwrap();
                 let commit_time = now.elapsed();
-                eprintln!("finished commit for k={num_vars}");
+                let commitment_size = bincode::serialized_size(&comm).unwrap();
 
                 let point = transcript.squeeze_challenges(num_vars);
                 let eval = evaluate_poly(&poly.evals().to_vec(), &point);
@@ -3331,17 +3340,10 @@ mod test {
                 let now = Instant::now();
                 Pcs::open(&pp, &poly, &comm, &point, &eval, &mut transcript).unwrap();
                 let prover_time = now.elapsed();
-                eprintln!("finished prove for k={num_vars}");
 
                 let proof = transcript.into_proof();
-                let proof_size_kb = proof.len() as f64 / 1024.0;
 
-                (
-                    proof,
-                    commit_time.as_millis(),
-                    prover_time.as_millis(),
-                    proof_size_kb,
-                )
+                (proof, commitment_size, commit_time, prover_time)
             };
 
             let now = Instant::now();
@@ -3357,17 +3359,35 @@ mod test {
             };
             let verifier_time = now.elapsed();
             assert_eq!(result, Ok(()));
-            eprintln!("finished verify for k={num_vars}");
-            println!(
-                "{},{},{},{},{},{}",
-                num_vars,
-                poly_size,
-                commit_ms,
-                prover_ms,
-                proof_size_kb,
-                verifier_time.as_millis()
-            );
+            println!("BrakingBase on Mersenne127:");
+            println!("SRS size: {srs_size} B");
+            println!("Setup time: {} ms", setup_time.as_secs_f64() * 1000.0);
+            println!("Commit time: {} s", commit_time.as_secs_f64());
+            println!("Commitment size: {commitment_size} B");
+            println!("Open time: {} s", prover_time.as_secs_f64());
+            println!("Verify time: {} ms", verifier_time.as_secs_f64() * 1000.0);
+            println!("Proof size: {} B", proof.len());
+            println!();
+            println!(" ****Max RAM: {} KB", max_ram_kb());
         }
+    }
+
+    #[cfg(target_os = "linux")]
+    fn max_ram_kb() -> u64 {
+        std::fs::read_to_string("/proc/self/status")
+            .ok()
+            .and_then(|status| {
+                status.lines().find_map(|line| {
+                    let rest = line.strip_prefix("VmHWM:")?;
+                    rest.split_whitespace().next()?.parse::<u64>().ok()
+                })
+            })
+            .unwrap_or(0)
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    fn max_ram_kb() -> u64 {
+        0
     }
 
     // fn run_basefold_batch_open<T>() {
